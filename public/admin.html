@@ -2,44 +2,54 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>Farmer Payments - Admin</title>
+<meta name="theme-color" content="#eef1e9">
+<title>Farmer payments admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div id="loginView" class="wrap">
-  <form id="loginForm" class="card login" autocomplete="off">
+
+<main id="loginView" class="login">
+  <form id="loginForm" class="login-inner" autocomplete="off">
+    <div id="loginMark"></div>
     <h1>Admin</h1>
-    <p class="muted">Enter the admin code.</p>
-    <label for="code">Admin code</label>
-    <input id="code" type="password" autocomplete="off" required>
-    <div class="actions"><button class="primary" id="loginBtn" type="submit">Log in</button></div>
+    <p class="lede">Enter the admin code to see every sheet and add new numbers.</p>
+    <label class="field">
+      <span class="field-label">Admin code</span>
+      <input id="code" type="password" autocomplete="off" spellcheck="false" required>
+    </label>
+    <button class="btn btn-primary btn-block" id="loginBtn" type="submit">Log in</button>
     <div class="err" id="loginErr" role="alert"></div>
   </form>
-</div>
+</main>
 
 <div id="appView" class="hidden">
-  <header class="top">
-    <div><h1>Farmer Payments · Admin</h1></div>
-    <button class="mini" id="logoutBtn" type="button">Log out</button>
+  <header class="bar bar-wide">
+    <div class="bar-in">
+      <div class="brand"><span id="barMark"></span><b>Farmer payments, admin</b></div>
+      <button class="btn btn-quiet btn-small" id="logoutBtn" type="button">Log out</button>
+    </div>
   </header>
-  <main class="wrap">
+  <main class="col col-wide">
     <div class="tabs" role="tablist" id="tabs">
       <button class="tab" role="tab" data-tab="overview" type="button">Overview</button>
       <button class="tab" role="tab" data-tab="assign" type="button">Add numbers</button>
       <button class="tab" role="tab" data-tab="export" type="button">Export</button>
     </div>
-    <section id="overview"></section>
-    <section id="assign" class="hidden"></section>
-    <section id="export" class="hidden"></section>
+    <section id="overview" class="section"></section>
+    <section id="assign" class="section hidden"></section>
+    <section id="export" class="section hidden"></section>
   </main>
 </div>
 
 <script src="/common.js"></script>
 <script>
 (function () {
-  const { h, inr, api, store } = FP;
+  const { h, inr, api, store, icon, tally, toast, confirmDialog } = FP;
   const $ = (id) => document.getElementById(id);
   let summary = null;
   let tab = 'overview';
@@ -48,8 +58,14 @@
     $('loginView').classList.toggle('hidden', v !== 'login');
     $('appView').classList.toggle('hidden', v !== 'app');
   }
-  function logout() { store.set(null); summary = null; $('code').value = ''; show('login'); }
-  $('logoutBtn').addEventListener('click', logout);
+  function logout(msg) {
+    store.set(null); summary = null; $('code').value = '';
+    $('loginErr').textContent = msg || '';
+    show('login');
+  }
+  $('loginMark').append(tally(['paid', 'paid', 'paid', 'paid', 'pending'], { height: 40 }));
+  $('barMark').append(tally(['paid', 'paid', 'paid', 'paid', 'paid'], { height: 22 }));
+  $('logoutBtn').addEventListener('click', () => logout());
 
   $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -78,174 +94,198 @@
       renderAssign();
       renderExport();
     } catch (err) {
-      if (err.status === 401) { logout(); $('loginErr').textContent = err.message; } else alert(err.message);
+      if (err.status === 401) logout(err.message); else toast(err.message);
     }
   }
 
   // ---------- Overview ----------
-  function stat(v, label) { return h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, label)); }
+  const pct = (a, b) => (b ? (a / b) * 100 : 0);
+  function meter(paid, failed, pending) {
+    const t = paid + failed + pending;
+    return h('div', { class: 'meter', role: 'img', 'aria-label': `${Math.round(pct(paid, t))} percent paid` },
+      h('i', { class: 'm-paid', style: `width:${pct(paid, t)}%` }),
+      h('i', { class: 'm-failed', style: `width:${pct(failed, t)}%` }),
+      h('i', { class: 'm-pending', style: `width:${pct(pending, t)}%` }));
+  }
 
   function renderOverview() {
     const o = summary.overall;
-    const root = $('overview');
-    root.replaceChildren(
-      h('div', { class: 'stats' },
-        stat(o.numbers, 'Numbers'),
-        stat(inr(o.total), 'Total allotted'),
-        stat(inr(o.paid), 'Paid'),
-        stat(inr(o.pending), 'Pending'),
-        stat(inr(o.failed), 'Failed (to retry)')),
-      ...summary.people.map(personCard),
+    const toSend = summary.people.reduce((s, p) => s + (p.nextSheet ? p.nextSheet.toSend : 0), 0);
+    $('overview').replaceChildren(
+      h('h2', {}, `${inr(o.paid)} paid so far`),
+      h('p', { class: 'muted' }, `${inr(o.pending + o.failed)} still to pay out of ${inr(o.total)} across ${o.numbers} numbers.`),
+      meter(o.paid, o.failed, o.pending),
+      h('div', { class: 'legend' },
+        h('span', { style: '--c:var(--paddy)' }, `Paid ${inr(o.paid)}`),
+        h('span', { style: '--c:var(--chilli)' }, `Failed ${inr(o.failed)}`),
+        h('span', { style: '--c:var(--turmeric)' }, `Not yet paid ${inr(o.pending)}`)),
+
+      h('div', { class: 'section' },
+        h('h2', {}, 'Money to send'),
+        h('p', { class: 'muted' }, 'For each person’s next unstarted sheet. Money from failed payments is still with them, so it is taken off.'),
+        h('ul', { class: 'send-list' }, ...summary.people.map(sendRow)),
+        h('div', { class: 'send-total' }, h('span', {}, 'Total to send now'), h('span', { class: 'money' }, inr(toSend)))),
+
+      h('div', { class: 'section' },
+        h('h2', {}, 'By person'),
+        h('div', {}, ...summary.people.map(personEl))),
+
       failedBlock()
     );
   }
 
-  function personCard(p) {
-    const next = p.nextSheet;
-    return h('div', { class: 'card' },
-      h('div', { class: 'row' },
-        h('h2', { style: 'margin:0' }, p.name),
-        h('span', { class: 'muted small' }, `${p.numbers} numbers · ${inr(p.total)} total · ${inr(p.paid)} paid`)),
-      p.carry > 0
-        ? h('div', { class: 'callout' }, `Carry-forward: ${inr(p.carry)} from failed payments is still with ${p.name}.`)
-        : null,
-      next
-        ? h('div', { class: 'callout ok' },
-            `Next sheet to fund: Sheet ${next.sheet_no} · total ${inr(next.total)}`,
-            next.carry > 0 ? ` − carry ${inr(next.carry)}` : '',
-            ' = ', h('b', {}, `send ${inr(next.toSend)}`))
-        : h('div', { class: 'muted small', style: 'margin:8px 0' }, 'No unstarted sheet left to fund.'),
-      h('div', { class: 'scroll' },
-        h('table', {},
-          h('thead', {}, h('tr', {},
-            h('th', {}, 'Sheet'), h('th', { class: 'r' }, 'Numbers'), h('th', { class: 'r' }, 'Total to send'),
-            h('th', { class: 'r' }, 'Paid'), h('th', { class: 'r' }, 'Failed'), h('th', { class: 'r' }, 'Pending'))),
-          h('tbody', {}, ...p.sheets.map((s) => h('tr', {},
-            h('td', {}, 'Sheet ' + s.sheet_no),
-            h('td', { class: 'r' }, `${s.paidCount}/${s.count} paid`),
-            h('td', { class: 'r' }, h('b', {}, inr(s.total))),
-            h('td', { class: 'r' }, inr(s.paid)),
-            h('td', { class: 'r' }, inr(s.failed)),
-            h('td', { class: 'r' }, inr(s.pending))))))));
+  function sendRow(p) {
+    const n = p.nextSheet;
+    return h('li', { class: 'send-row' },
+      h('b', {}, p.name),
+      h('span', { class: 'detail' }, n
+        ? `Sheet ${n.sheet_no} adds up to ${inr(n.total)}` + (n.carry > 0 ? `, less ${inr(n.carry)} already with ${p.name}` : '')
+        : (p.carry > 0 ? `${inr(p.carry)} from failed payments is with ${p.name}. No new sheet to fund.` : 'No new sheet to fund.')),
+      h('span', { class: 'money' + (n ? '' : ' none') }, n ? inr(n.toSend) : 'Nothing'));
+  }
+
+  function personEl(p) {
+    const paidN = p.sheets.reduce((s, x) => s + x.paidCount, 0);
+    const failN = p.sheets.reduce((s, x) => s + x.failedCount, 0);
+    const pendN = p.sheets.reduce((s, x) => s + x.pendingCount, 0);
+    return h('details', { class: 'person' },
+      h('summary', {},
+        h('span', { class: 'name' }, p.name),
+        h('span', { class: 'count' }, `${paidN} of ${p.numbers} paid`),
+        h('span', { class: 'chev' }, icon('chevron', 20)),
+        meter(paidN, failN, pendN)),
+      h('div', { class: 'table-scroll' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Sheet'), h('th', {}, 'Progress'), h('th', { class: 'r' }, 'Sheet total'),
+          h('th', { class: 'r' }, 'Paid'), h('th', { class: 'r' }, 'Failed'), h('th', { class: 'r' }, 'Not yet paid'))),
+        h('tbody', {}, ...p.sheets.map((s) => h('tr', {},
+          h('td', {}, `Sheet ${s.sheet_no}`),
+          h('td', {}, tally([].concat(Array(s.paidCount).fill('paid'), Array(s.failedCount).fill('failed'), Array(s.pendingCount).fill('pending')), { height: 18 })),
+          h('td', { class: 'r' }, h('b', {}, inr(s.total))),
+          h('td', { class: 'r' }, inr(s.paid)),
+          h('td', { class: 'r' }, inr(s.failed)),
+          h('td', { class: 'r' }, inr(s.pending))))))),
+      p.carry > 0 ? h('p', { class: 'callout' }, `${inr(p.carry)} from failed payments is still with ${p.name}.`) : null);
   }
 
   function failedBlock() {
     const list = summary.failedList;
-    if (!list.length) return h('div', { class: 'card muted' }, 'No failed payments right now.');
-    return h('div', { class: 'card' },
-      h('h2', {}, `Failed payments (${list.length})`),
-      h('div', { class: 'small muted' }, 'These stay in their own sheet with the same person until paid.'),
-      h('div', { class: 'scroll' }, h('table', {},
-        h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', { class: 'r' }, 'Amount'))),
-        h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, 'Sheet ' + f.sheet_no), h('td', {}, f.phone), h('td', { class: 'r' }, inr(f.prize_money))))))));
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Failed payments'),
+      list.length
+        ? [h('p', { class: 'muted' }, 'Each stays in its sheet with the same person until it is paid.'),
+           h('div', { class: 'table-scroll' }, h('table', {},
+             h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', { class: 'r' }, 'Amount'))),
+             h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', { class: 'r' }, inr(f.prize_money)))))))]
+        : h('p', { class: 'muted' }, 'No failed payments right now.'));
   }
 
   // ---------- Add numbers ----------
-  const A = { previewKey: null, ready: false };
-
   function renderAssign() {
-    const root = $('assign');
     const names = summary.people.map((p) => p.name);
-    const ta = h('textarea', { id: 'paste', placeholder: 'Paste farmer numbers here, one per line or separated by commas' });
-    const checks = names.map((n) => h('label', { class: 'check' },
-      h('input', { type: 'checkbox', value: n, 'data-person': n }), h('span', {}, n)));
+    const stateByName = {};
+    const ta = h('textarea', { placeholder: 'Paste farmer numbers here, one per line or separated by commas', 'aria-label': 'Farmer numbers' });
+    const personBoxes = names.map((n) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: n, 'data-person': n }), n));
     const modeAuto = h('input', { type: 'radio', name: 'mode', value: 'auto', checked: true });
     const modeMan = h('input', { type: 'radio', name: 'mode', value: 'manual' });
-    const topUp = h('input', { type: 'checkbox', id: 'topup' });
-    const manualBox = h('div', { class: 'hidden', id: 'manualBox' },
-      h('div', { class: 'small muted' }, 'How many numbers should each ticked person get?'),
-      h('div', { class: 'checks' }, ...names.map((n) => h('div', { class: 'check', 'data-count-for': n },
-        h('span', { style: 'flex:1' }, n),
-        h('input', { type: 'number', min: '0', step: '1', value: '0', style: 'width:90px', 'data-count': n })))));
-    const out = h('div', { id: 'assignOut' });
-    const previewBtn = h('button', { type: 'button' }, 'Check and preview');
-    const goBtn = h('button', { class: 'primary', type: 'button', disabled: true }, 'Confirm and assign');
-
-    root.replaceChildren(h('div', { class: 'card' },
+    const topUp = h('input', { type: 'checkbox' });
+    const counts = h('div', { class: 'counts hidden' }, ...names.map((n) => h('label', {}, n, h('input', { type: 'number', min: '0', step: '1', value: '0', 'data-count': n, inputmode: 'numeric' }))));
+    const out = h('div', { 'aria-live': 'polite' });
+    const previewBtn = h('button', { class: 'btn btn-quiet', type: 'button' }, 'Check numbers');
+    const goBtn = h('button', { class: 'btn btn-primary', type: 'button', disabled: true }, 'Assign numbers');
+    const wrap = h('div', {},
       h('h2', {}, 'Add new numbers'),
-      h('p', { class: 'muted small' }, 'Numbers already in the system (paid, pending or failed) are skipped automatically. Each new number gets a fresh random amount from ₹25 to ₹200 when you confirm, and it can never be changed.'),
-      ta,
-      h('h2', { style: 'margin-top:16px' }, 'Who gets them?'),
-      h('div', { class: 'checks' }, ...checks),
-      h('div', { class: 'row', style: 'margin-top:12px' },
-        h('label', { class: 'check' }, modeAuto, h('span', {}, 'Automatic: sheets of 15 dealt in turn')),
-        h('label', { class: 'check' }, modeMan, h('span', {}, 'Manual: choose a count per person'))),
-      manualBox,
-      h('label', { class: 'check', style: 'margin-top:10px' }, topUp, h('span', {}, 'Fill each person\'s short last sheet first')),
-      h('div', { class: 'actions' }, previewBtn, goBtn),
-      out));
+      h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200 when you assign it, and the amount can never change.'),
+      h('div', { class: 'step' }, h('h3', {}, '1. Paste the numbers'), ta),
+      h('div', { class: 'step' }, h('h3', {}, '2. Choose who gets them'),
+        h('div', { class: 'checks' }, ...personBoxes),
+        h('div', { class: 'opt-row' },
+          h('label', { class: 'check' }, modeAuto, 'Deal sheets of 15 in turn'),
+          h('label', { class: 'check' }, modeMan, 'Choose a count for each person')),
+        counts,
+        h('div', { class: 'opt-row' }, h('label', { class: 'check' }, topUp, 'Fill each person’s short last sheet first'))),
+      h('div', { class: 'step' }, h('h3', {}, '3. Check, then assign'),
+        h('div', { class: 'opt-row' }, previewBtn, goBtn), out));
+    $('assign').replaceChildren(wrap);
 
-    const key = () => JSON.stringify([ta.value, names.filter((n) => root.querySelector(`[data-person="${n}"]`).checked),
-      modeMan.checked ? 'manual' : 'auto', topUp.checked,
-      modeMan.checked ? names.map((n) => root.querySelector(`[data-count="${n}"]`).value) : null]);
+    const picked = () => names.filter((n) => wrap.querySelector(`[data-person="${n}"]`).checked);
+    const key = () => JSON.stringify([ta.value, picked(), modeMan.checked, topUp.checked,
+      modeMan.checked ? names.map((n) => wrap.querySelector(`[data-count="${n}"]`).value) : null]);
+    let previewKey = null;
+    const onChange = () => {
+      counts.classList.toggle('hidden', !modeMan.checked);
+      if (key() !== previewKey) goBtn.disabled = true;
+    };
+    wrap.addEventListener('input', onChange);
+    wrap.addEventListener('change', onChange);
 
-    const invalidate = () => { goBtn.disabled = true; A.ready = false; };
-    root.addEventListener('input', () => { manualBox.classList.toggle('hidden', !modeMan.checked); if (key() !== A.previewKey) invalidate(); });
-    root.addEventListener('change', () => { manualBox.classList.toggle('hidden', !modeMan.checked); if (key() !== A.previewKey) invalidate(); });
-
-    function payload(commit) {
-      const people = names.filter((n) => root.querySelector(`[data-person="${n}"]`).checked);
-      const counts = {};
-      for (const n of names) counts[n] = Number(root.querySelector(`[data-count="${n}"]`).value || 0);
-      return { numbers: ta.value, people, mode: modeMan.checked ? 'manual' : 'auto', counts, topUp: topUp.checked, commit };
-    }
+    const payload = (commit) => {
+      const c = {};
+      for (const n of names) c[n] = Number(wrap.querySelector(`[data-count="${n}"]`).value || 0);
+      return { numbers: ta.value, people: picked(), mode: modeMan.checked ? 'manual' : 'auto', counts: c, topUp: topUp.checked, commit };
+    };
 
     previewBtn.addEventListener('click', async () => {
       out.replaceChildren();
-      if (!ta.value.trim()) { out.append(h('div', { class: 'err' }, 'Paste some numbers first.')); return; }
+      if (!ta.value.trim()) { out.append(h('p', { class: 'err' }, 'Paste some numbers first.')); return; }
       previewBtn.disabled = true;
       try {
         const r = await api('/api/admin/assign', { method: 'POST', json: payload(false) });
-        A.previewKey = key();
+        previewKey = key();
         const s = r.summary;
+        for (const p of s.people) stateByName[p.name] = p;
         out.append(
-          h('div', { class: 'callout ok' },
-            h('b', {}, `${s.newCount} new number${s.newCount === 1 ? '' : 's'} can be added.`)),
-          h('div', { class: 'small muted' },
-            `Pasted ${s.pasted} · invalid ${s.invalidCount} · repeated in your list ${s.duplicatesInPaste} · already in system ${s.alreadyCount}`,
-            s.alreadyCount ? ` (paid ${s.already.successful}, pending ${s.already.pending}, failed ${s.already.failed})` : ''),
-          s.invalidCount ? h('div', { class: 'small err' }, 'Not valid 10-digit mobile numbers: ' + s.invalid.join(', ') + (s.invalidCount > s.invalid.length ? ' …' : '')) : null
-        );
+          h('p', { class: 'callout good' }, h('b', {}, `${s.newCount} new ${s.newCount === 1 ? 'number' : 'numbers'} can be added.`)),
+          h('p', { class: 'muted small' },
+            `You pasted ${s.pasted}. ${s.invalidCount} not valid, ${s.duplicatesInPaste} repeated in your list, ${s.alreadyCount} already in the system` +
+            (s.alreadyCount ? ` (${s.already.successful} paid, ${s.already.pending} pending, ${s.already.failed} failed).` : '.')),
+          s.invalidCount ? h('p', { class: 'err small' }, 'Not valid 10-digit mobile numbers: ' + s.invalid.join(', ') + (s.invalidCount > s.invalid.length ? ' and more' : '')) : null);
         if (!r.plan) {
-          out.append(h('div', { class: 'callout' }, s.newCount ? 'Tick at least one person to see the split.' : 'There are no new numbers to assign.'));
+          out.append(h('p', { class: 'callout' }, s.newCount ? 'Tick at least one person to see the split.' : 'There are no new numbers to assign.'));
           return;
         }
-        out.append(h('h2', { style: 'margin-top:12px' }, 'Planned split'),
-          h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Goes into'))),
+        out.append(
+          h('h3', { style: 'margin-top:18px' }, 'Planned split'),
+          h('div', { class: 'table-scroll' }, h('table', {},
+            h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Goes into'))),
             h('tbody', {}, ...Object.entries(r.plan).map(([n, parts]) => h('tr', {},
               h('td', {}, n),
-              h('td', {}, parts.length ? parts.map((x) => `Sheet ${x.sheet} (${x.count}, ${x.kind})`).join(' · ') : '—')))))),
-          r.unassigned ? h('div', { class: 'callout' }, `${r.unassigned} number${r.unassigned === 1 ? '' : 's'} will stay unassigned and can be added later.`) : null);
-        goBtn.disabled = false; A.ready = true;
+              h('td', { style: 'white-space:normal' }, parts.length ? parts.map((x) => `Sheet ${x.sheet}: ${x.count} (${x.kind})`).join(', ') : 'Nothing')))))),
+          r.unassigned ? h('p', { class: 'callout' }, `${r.unassigned} ${r.unassigned === 1 ? 'number' : 'numbers'} will stay unassigned and can be added later.`) : null);
+        goBtn.disabled = false;
       } catch (e) {
-        if (e.status === 401) { logout(); return; }
-        out.append(h('div', { class: 'err' }, e.message));
+        if (e.status === 401) { logout(e.message); return; }
+        out.append(h('p', { class: 'err' }, e.message));
       } finally { previewBtn.disabled = false; }
     });
 
     goBtn.addEventListener('click', async () => {
-      if (!A.ready) return;
-      if (!confirm('Assign these numbers now? Each gets a random amount from ₹25 to ₹200 that can never be changed.')) return;
+      const ok = await confirmDialog({
+        title: 'Assign these numbers?',
+        body: ['Each number gets a random amount from ₹25 to ₹200.', 'Amounts can never be changed afterwards.'],
+        confirmText: 'Assign numbers',
+      });
+      if (!ok) return;
       goBtn.disabled = true; previewBtn.disabled = true;
       try {
         const r = await api('/api/admin/assign', { method: 'POST', json: payload(true) });
-        ta.value = ''; A.previewKey = null; A.ready = false;
-        out.replaceChildren(h('div', { class: 'callout ok' },
-          h('b', {}, `Assigned ${r.assigned} numbers · total ${inr(r.totalPrize)}.`),
-          ' ', Object.entries(r.plan).filter(([, p]) => p.length).map(([n, p]) => `${n}: ` + p.map((x) => `Sheet ${x.sheet} (${x.count})`).join(', ')).join(' · ')));
+        ta.value = ''; previewKey = null;
+        out.replaceChildren(h('p', { class: 'callout good' },
+          h('b', {}, `Assigned ${r.assigned} numbers, ${inr(r.totalPrize)} in total. `),
+          Object.entries(r.plan).filter(([, p]) => p.length).map(([n, p]) => `${n}: ` + p.map((x) => `Sheet ${x.sheet} (${x.count})`).join(', ')).join('. ')));
+        toast('Numbers assigned');
         summary = await api('/api/admin/summary');
         renderOverview();
       } catch (e) {
-        if (e.status === 401) { logout(); return; }
-        out.append(h('div', { class: 'err' }, e.message));
+        if (e.status === 401) { logout(e.message); return; }
+        out.append(h('p', { class: 'err' }, e.message));
       } finally { previewBtn.disabled = false; }
     });
   }
 
   // ---------- Export ----------
   function renderExport() {
-    const msg = h('div', { class: 'err' });
-    const btn = h('button', { class: 'primary', type: 'button' }, 'Download CSV (opens in Excel)');
+    const msg = h('p', { class: 'err' });
+    const btn = h('button', { class: 'btn btn-primary', type: 'button' }, 'Download CSV');
     btn.addEventListener('click', async () => {
       msg.textContent = ''; btn.disabled = true;
       try {
@@ -256,13 +296,14 @@
         a.download = 'farmer-payments.csv';
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-      } catch (e) { if (e.status === 401) logout(); else msg.textContent = e.message; }
+        toast('Download started');
+      } catch (e) { if (e.status === 401) logout(e.message); else msg.textContent = e.message; }
       finally { btn.disabled = false; }
     });
-    $('export').replaceChildren(h('div', { class: 'card' },
+    $('export').replaceChildren(
       h('h2', {}, 'Export everything'),
-      h('p', { class: 'muted small' }, 'One row per farmer number: person, sheet, number, prize money, status, transaction ID, date and time, and farmer name.'),
-      btn, msg));
+      h('p', { class: 'muted' }, 'One row for every farmer number: person, sheet, number, prize money, status, transaction ID, date and time, and farmer name. Opens in Excel.'),
+      h('div', { class: 'opt-row' }, btn), msg);
   }
 
   if (store.get()) start(); else show('login');

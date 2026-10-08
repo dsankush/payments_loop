@@ -2,73 +2,101 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>Farmer Payments</title>
+<meta name="theme-color" content="#eef1e9">
+<title>Farmer payments</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div id="loginView" class="wrap">
-  <form id="loginForm" class="card login" autocomplete="off">
-    <h1>Farmer Payments</h1>
-    <p class="muted">Choose your name and enter your access code.</p>
-    <label for="name">Your name</label>
-    <select id="name" required>
-      <option value="">Select...</option>
-      <option>Ankita</option><option>Shreya</option><option>Dean</option><option>Saswati</option>
-      <option>Ankush</option><option>Jeet</option><option>Nikita</option>
-    </select>
-    <label for="code">Access code</label>
-    <input id="code" type="password" autocapitalize="characters" autocomplete="off" required>
-    <div class="actions"><button class="primary" id="loginBtn" type="submit">Log in</button></div>
+
+<main id="loginView" class="login">
+  <form id="loginForm" class="login-inner" autocomplete="off">
+    <div id="loginMark"></div>
+    <h1>Farmer payments</h1>
+    <p class="lede">Choose your name, then enter your access code.</p>
+    <fieldset class="names">
+      <legend>Your name</legend>
+      <div class="chips" id="nameChips"></div>
+    </fieldset>
+    <label class="field">
+      <span class="field-label">Access code</span>
+      <input id="code" class="code-input" type="password" autocapitalize="characters" autocomplete="off" spellcheck="false" required>
+    </label>
+    <button class="btn btn-primary btn-block" id="loginBtn" type="submit">Log in</button>
     <div class="err" id="loginErr" role="alert"></div>
   </form>
-</div>
+</main>
 
 <div id="appView" class="hidden">
-  <header class="top">
-    <div><h1>Farmer Payments</h1><div class="who" id="who"></div></div>
-    <button class="mini" id="logoutBtn" type="button">Log out</button>
+  <header class="bar">
+    <div class="bar-in">
+      <div class="brand"><span id="barMark"></span><div><b>Farmer payments</b><div class="who" id="who"></div></div></div>
+      <button class="btn btn-quiet btn-small" id="logoutBtn" type="button">Log out</button>
+    </div>
   </header>
-  <main class="wrap">
-    <div class="stats" id="stats"></div>
-    <div class="tabs" id="tabs" role="tablist"></div>
-    <section id="sheet"></section>
+  <main class="col">
+    <section class="hero" id="hero"></section>
+    <nav class="sheets" id="tabs" role="tablist" aria-label="Sheets"></nav>
+    <ul class="ledger" id="list"></ul>
+    <p class="overall" id="overall"></p>
   </main>
 </div>
 
 <script src="/common.js"></script>
 <script>
 (function () {
-  const { h, inr, fmtDate, localNowInput, api, copy, store } = FP;
+  const { h, inr, groupPhone, fmtDate, localNowInput, api, copy, store, icon, tally, toast, confirmDialog } = FP;
   const $ = (id) => document.getElementById(id);
+  const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const NAMES = ['Ankita', 'Shreya', 'Dean', 'Saswati', 'Ankush', 'Jeet', 'Nikita'];
+  const TXN = /^[A-Za-z0-9]{6,40}$/;
+
   let data = [];
   let active = null;
-  let me = '';
+  let openId = null;
+  let drawn = null;
+
+  const sum = (a) => a.reduce((s, f) => s + f.prize_money, 0);
+  const stateOf = (f) => (f.status === 'successful' ? 'paid' : f.status === 'failed' ? 'failed' : 'pending');
+  const sheetsOf = () => [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
+  const rowsOf = (s) => data.filter((f) => f.sheet_no === s).sort((a, b) => a.position - b.position);
 
   function show(view) {
     $('loginView').classList.toggle('hidden', view !== 'login');
     $('appView').classList.toggle('hidden', view !== 'app');
   }
 
-  function logout() {
+  // ---------- Login ----------
+  $('loginMark').append(tally(['paid', 'paid', 'paid', 'paid', 'pending'], { height: 40 }));
+  $('barMark').append(tally(['paid', 'paid', 'paid', 'paid', 'paid'], { height: 22 }));
+  NAMES.forEach((n) => $('nameChips').append(
+    h('label', { class: 'chip' }, h('input', { type: 'radio', name: 'person', value: n }), h('span', {}, n))
+  ));
+
+  function logout(msg) {
     store.set(null);
-    data = []; active = null;
+    data = []; active = null; openId = null; drawn = null;
     $('code').value = '';
+    $('loginErr').textContent = msg || '';
     show('login');
   }
-
-  $('logoutBtn').addEventListener('click', logout);
+  $('logoutBtn').addEventListener('click', () => logout());
 
   $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('loginErr').textContent = '';
+    const picked = document.querySelector('input[name="person"]:checked');
+    if (!picked) { $('loginErr').textContent = 'Choose your name first.'; return; }
     $('loginBtn').disabled = true;
     try {
-      const r = await api('/api/login', { method: 'POST', json: { name: $('name').value, code: $('code').value } });
-      if (r.role !== 'person') throw new Error('Please use the admin page for admin login.');
+      const r = await api('/api/login', { method: 'POST', json: { name: picked.value, code: $('code').value } });
+      if (r.role !== 'person') throw new Error('Please use the admin page for the admin login.');
       store.set(r.token);
-      me = r.name;
+      $('who').textContent = r.name;
       await load();
     } catch (err) {
       $('loginErr').textContent = err.message;
@@ -78,129 +106,182 @@
     }
   });
 
-  async function load() {
+  // ---------- Data ----------
+  async function load(opts) {
     try {
       const r = await api('/api/my-data');
-      me = r.name;
       data = r.farmers;
-      const sheets = [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
+      $('who').textContent = r.name;
+      const sheets = sheetsOf();
       if (active === null || !sheets.includes(active)) {
-        // open the first sheet that still has work to do
-        active = (sheets.find((s) => data.some((f) => f.sheet_no === s && f.status !== 'successful'))) || sheets[0] || null;
+        active = sheets.find((s) => rowsOf(s).some((f) => f.status !== 'successful')) || sheets[0] || null;
+        openId = null;
       }
-      $('who').textContent = 'Logged in as ' + me;
+      ensureOpen();
       show('app');
       render();
+      if (opts && opts.scroll) {
+        const el = document.querySelector('.row[data-open="true"]');
+        if (el) el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+      }
     } catch (err) {
-      if (err.status === 401) { logout(); $('loginErr').textContent = err.message; }
-      else alert(err.message);
+      if (err.status === 401) logout(err.message);
+      else toast(err.message);
     }
   }
 
+  function ensureOpen() {
+    const rows = active === null ? [] : rowsOf(active);
+    if (!rows.some((f) => f.id === openId)) {
+      const next = rows.find((f) => f.status !== 'successful');
+      openId = next ? next.id : null;
+    }
+  }
+
+  function setOpen(id) {
+    openId = id;
+    for (const li of $('list').children) {
+      const open = li.dataset.id === id;
+      li.dataset.open = String(open);
+      li.querySelector('.row-head').setAttribute('aria-expanded', String(open));
+      const body = li.querySelector('.row-body');
+      if (open) body.removeAttribute('inert'); else body.setAttribute('inert', '');
+    }
+  }
+
+  // ---------- Render ----------
   function render() {
-    const total = data.length;
+    renderHero();
+    renderTabs();
+    const rows = active === null ? [] : rowsOf(active);
+    $('list').replaceChildren(...rows.map(rowEl));
+    if (!rows.length) {
+      $('list').replaceChildren(h('li', { class: 'empty' }, 'No numbers are assigned to you yet. Ask the admin to add a sheet.'));
+    }
     const paid = data.filter((f) => f.status === 'successful');
     const failed = data.filter((f) => f.status === 'failed');
-    const sum = (a) => a.reduce((s, f) => s + f.prize_money, 0);
-    $('stats').replaceChildren(
-      stat(total, 'Numbers'),
-      stat(paid.length, 'Paid'),
-      stat(total - paid.length, 'Left to pay'),
-      stat(inr(sum(paid)), 'Amount paid'),
-      stat(inr(sum(data) - sum(paid)), 'Amount left'),
-      failed.length ? stat(failed.length, 'Failed (retry)') : null
-    );
+    $('overall').textContent = data.length
+      ? `Across all ${sheetsOf().length} sheets: ${paid.length} of ${data.length} paid, ${inr(sum(paid))} sent, ${inr(sum(data) - sum(paid))} left` +
+        (failed.length ? `, and ${failed.length} failed to retry.` : '.')
+      : '';
+  }
 
-    const sheets = [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
-    $('tabs').replaceChildren(...sheets.map((s) => {
-      const rows = data.filter((f) => f.sheet_no === s);
+  function renderHero() {
+    const hero = $('hero');
+    if (active === null) { hero.replaceChildren(); return; }
+    const rows = rowsOf(active);
+    const paid = rows.filter((f) => f.status === 'successful');
+    const complete = paid.length === rows.length;
+    const animate = !reduce && drawn !== active;
+    drawn = active;
+    hero.replaceChildren(
+      h('div', { class: 'hero-top' },
+        h('h1', {}, `Sheet ${active}`),
+        h('span', { class: 'sub' }, complete ? 'All paid' : `${paid.length} of ${rows.length} paid`)),
+      tally(rows.map(stateOf), { height: 46, animate }),
+      h('div', { class: 'hero-amount' },
+        h('span', { class: 'big' }, inr(sum(rows) - sum(paid))),
+        h('span', { class: 'lbl' }, complete ? 'left on this sheet' : `left to pay, out of ${inr(sum(rows))}`)),
+      complete ? h('p', { class: 'done-note' }, `Sheet ${active} is complete.`) : null
+    );
+  }
+
+  function renderTabs() {
+    $('tabs').replaceChildren(...sheetsOf().map((s) => {
+      const rows = rowsOf(s);
       const done = rows.filter((f) => f.status === 'successful').length;
       return h('button', {
-        class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(s === active),
-        onclick: () => { active = s; render(); },
-      }, `Sheet ${s} · ${done}/${rows.length}`);
+        class: 'sheet-chip', role: 'tab', type: 'button', 'aria-selected': String(s === active),
+        onclick: () => { active = s; openId = null; ensureOpen(); render(); },
+      }, `Sheet ${s}`, done === rows.length ? icon('check', 16) : h('small', {}, `${done}/${rows.length}`));
     }));
-
-    const rows = data.filter((f) => f.sheet_no === active);
-    if (!rows.length) { $('sheet').replaceChildren(h('p', { class: 'muted' }, 'No numbers assigned to you yet.')); return; }
-    const done = rows.filter((f) => f.status === 'successful').length;
-    $('sheet').replaceChildren(
-      h('div', { class: 'card' },
-        h('h2', {}, `Sheet ${active}`),
-        h('div', { class: 'muted small' }, `Sheet total ${inr(sum(rows))} · ${done} of ${rows.length} paid · ${inr(sum(rows) - sum(rows.filter((f) => f.status === 'successful')))} left`),
-        h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((done / rows.length) * 100)}%` })),
-        h('div', { class: 'small muted' }, 'Copy each number and amount into your UPI app, pay, then fill in the details and tap "Mark paid". A paid entry is locked and cannot be edited.')
-      ),
-      ...rows.map(farmerCard)
-    );
   }
 
-  function stat(v, label) {
-    if (v === null) return null;
-    return h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, label));
+  function rowEl(f) {
+    const st = stateOf(f);
+    const open = openId === f.id;
+    const bodyId = 'body-' + f.id;
+    const label = st === 'paid' ? 'Paid' : st === 'failed' ? 'Failed' : 'Not paid yet';
+    const head = h('button', { class: 'row-head', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
+      h('span', { class: 'pos' }, f.position),
+      h('span', { class: 'phone' }, groupPhone(f.phone)),
+      h('span', { class: 'amt' }, inr(f.prize_money)),
+      h('span', { class: 'state', 'data-state': st }, icon(st === 'paid' ? 'check' : st === 'failed' ? 'alert' : 'clock', 17), h('span', { class: 'sr' }, label)));
+    head.addEventListener('click', () => setOpen(openId === f.id ? null : f.id));
+    const body = h('div', { class: 'row-body', id: bodyId }, h('div', { class: 'row-inner' }, st === 'paid' ? paidDetail(f) : formDetail(f)));
+    if (!open) body.setAttribute('inert', '');
+    return h('li', { class: 'row', 'data-state': st, 'data-open': String(open), 'data-id': f.id }, head, body);
   }
 
-  function farmerCard(f) {
-    const isDone = f.status === 'successful';
-    const cls = 'farmer' + (isDone ? ' done' : f.status === 'failed' ? ' failed' : '');
-    const chip = isDone ? h('span', { class: 'chip ok' }, 'Paid · locked')
-      : f.status === 'failed' ? h('span', { class: 'chip bad' }, 'Failed · retry')
-      : h('span', { class: 'chip' }, 'Pending');
-
-    const copyNum = h('button', { class: 'mini', type: 'button' }, 'Copy number');
-    copyNum.addEventListener('click', () => copy(f.phone, copyNum));
-    const copyAmt = h('button', { class: 'mini', type: 'button' }, 'Copy amount');
-    copyAmt.addEventListener('click', () => copy(f.prize_money, copyAmt));
-
-    const top = [
-      h('div', { class: 'head' }, h('span', { class: 'pos' }, `#${f.position}`), chip),
-      h('div', { class: 'pair' }, h('span', { class: 'num' }, f.phone), copyNum),
-      h('div', { class: 'pair' }, h('span', { class: 'amt' }, inr(f.prize_money)), copyAmt),
+  function paidDetail(f) {
+    const fact = (k, v) => h('div', {}, h('dt', {}, k), h('dd', {}, v));
+    return [
+      h('dl', { class: 'facts' }, fact('Transaction ID', f.transaction_id), fact('Farmer', f.farmer_name), fact('Paid on', fmtDate(f.paid_at))),
+      h('p', { class: 'locked' }, icon('lock', 16), 'Locked. A paid entry cannot be edited.'),
     ];
+  }
 
-    if (isDone) {
-      return h('div', { class: cls }, ...top,
-        h('div', { class: 'small', style: 'margin-top:8px' },
-          h('div', {}, 'Transaction ID: ', h('b', {}, f.transaction_id)),
-          h('div', {}, 'Farmer: ', h('b', {}, f.farmer_name)),
-          h('div', {}, 'Paid on: ', h('b', {}, fmtDate(f.paid_at)))));
-    }
+  function formDetail(f) {
+    const cNum = h('button', { class: 'btn btn-copy', type: 'button' }, icon('copy', 18), h('span', { class: 'lbl' }, 'Copy number'));
+    const cAmt = h('button', { class: 'btn btn-copy', type: 'button' }, icon('copy', 18), h('span', { class: 'lbl' }, 'Copy amount'));
+    cNum.addEventListener('click', () => copy(f.phone, cNum));
+    cAmt.addEventListener('click', () => copy(f.prize_money, cAmt));
 
-    const txn = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'characters', placeholder: 'e.g. 412345678901', maxlength: '40' });
-    const nm = h('input', { type: 'text', autocomplete: 'off', placeholder: 'Name as shown in UPI app', maxlength: '80' });
+    const txn = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '40', placeholder: 'e.g. 412345678901' });
+    const nm = h('input', { type: 'text', autocomplete: 'off', maxlength: '80', placeholder: 'As shown in your UPI app' });
     const dt = h('input', { type: 'datetime-local', value: localNowInput(), max: localNowInput() });
-    const err = h('div', { class: 'err', role: 'alert' });
-    const okBtn = h('button', { class: 'primary', type: 'button' }, 'Mark paid');
-    const badBtn = h('button', { class: 'danger', type: 'button' }, 'Mark failed');
+    const hint = h('p', { class: 'hint', 'aria-live': 'polite' });
+    const err = h('p', { class: 'err', role: 'alert' });
+    const okBtn = h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: true }, 'Mark paid');
+    const badBtn = h('button', { class: 'btn btn-ghost-danger btn-block', type: 'button' }, 'Mark failed');
+
+    function sync() {
+      const t = txn.value.trim();
+      const tOk = TXN.test(t);
+      const nOk = nm.value.trim().length >= 2;
+      okBtn.disabled = !(tOk && nOk && dt.value);
+      hint.textContent = okBtn.disabled
+        ? (t && !tOk ? 'The transaction ID is 6 to 40 letters or digits, with no spaces.' : 'Fill in the transaction ID and the farmer name to mark this paid.')
+        : '';
+    }
+    [txn, nm, dt].forEach((i) => i.addEventListener('input', sync));
+    sync();
 
     async function save(status) {
       err.textContent = '';
-      if (status === 'successful') {
-        if (!confirm(`Mark ${f.phone} (${inr(f.prize_money)}) as PAID?\nTransaction ID: ${txn.value.trim()}\nThis locks the entry and it cannot be changed.`)) return;
-      } else if (!confirm(`Mark ${f.phone} as FAILED? It stays in this sheet so you can retry it.`)) return;
-      okBtn.disabled = badBtn.disabled = true;
+      const ok = await confirmDialog(status === 'successful'
+        ? { title: `Mark ${inr(f.prize_money)} as paid?`, body: [`${groupPhone(f.phone)}, transaction ${txn.value.trim()}.`, 'A paid entry is locked and cannot be edited afterwards.'], confirmText: 'Mark paid' }
+        : { title: 'Mark this payment as failed?', body: [`${groupPhone(f.phone)} stays on this sheet so you can try it again.`], confirmText: 'Mark failed', danger: true });
+      if (!ok) return;
+      okBtn.disabled = true; badBtn.disabled = true;
       try {
         await api('/api/update', {
           method: 'POST',
           json: { id: f.id, status, transaction_id: txn.value, farmer_name: nm.value, paid_at: dt.value ? new Date(dt.value).toISOString() : '' },
         });
-        await load();
+        const rows = rowsOf(f.sheet_no).filter((r) => r.id !== f.id && r.status !== 'successful');
+        const after = rows.find((r) => r.position > f.position) || rows[0];
+        openId = after ? after.id : null;
+        toast(status === 'successful' ? 'Marked paid' : 'Marked failed');
+        await load({ scroll: true });
       } catch (e) {
-        if (e.status === 401) { logout(); return; }
+        if (e.status === 401) { logout(e.message); return; }
         err.textContent = e.message;
-        okBtn.disabled = badBtn.disabled = false;
+        badBtn.disabled = false; sync();
       }
     }
     okBtn.addEventListener('click', () => save('successful'));
     badBtn.addEventListener('click', () => save('failed'));
 
-    return h('div', { class: cls }, ...top,
-      h('div', { class: 'fields' },
-        h('div', {}, h('label', {}, 'Transaction ID'), txn),
-        h('div', {}, h('label', {}, 'Name of the farmer'), nm),
-        h('div', {}, h('label', {}, 'Date and time'), dt)),
+    return [
+      f.status === 'failed' ? h('p', { class: 'note note-failed' }, 'This payment did not go through earlier. Try it again, then mark it paid.') : null,
+      h('div', { class: 'copy-row' }, cNum, cAmt),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Transaction ID'), txn),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name of the farmer'), nm),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Date and time'), dt),
+      hint, err,
       h('div', { class: 'actions' }, okBtn, f.status === 'failed' ? null : badBtn),
-      err);
+    ];
   }
 
   if (store.get()) load(); else show('login');
