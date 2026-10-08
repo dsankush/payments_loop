@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Farmer Payments - Admin</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="loginView" class="wrap">
+  <form id="loginForm" class="card login" autocomplete="off">
+    <h1>Admin</h1>
+    <p class="muted">Enter the admin code.</p>
+    <label for="code">Admin code</label>
+    <input id="code" type="password" autocomplete="off" required>
+    <div class="actions"><button class="primary" id="loginBtn" type="submit">Log in</button></div>
+    <div class="err" id="loginErr" role="alert"></div>
+  </form>
+</div>
+
+<div id="appView" class="hidden">
+  <header class="top">
+    <div><h1>Farmer Payments · Admin</h1></div>
+    <button class="mini" id="logoutBtn" type="button">Log out</button>
+  </header>
+  <main class="wrap">
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-tab="overview" type="button">Overview</button>
+      <button class="tab" role="tab" data-tab="assign" type="button">Add numbers</button>
+      <button class="tab" role="tab" data-tab="export" type="button">Export</button>
+    </div>
+    <section id="overview"></section>
+    <section id="assign" class="hidden"></section>
+    <section id="export" class="hidden"></section>
+  </main>
+</div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  const { h, inr, api, store } = FP;
+  const $ = (id) => document.getElementById(id);
+  let summary = null;
+  let tab = 'overview';
+
+  function show(v) {
+    $('loginView').classList.toggle('hidden', v !== 'login');
+    $('appView').classList.toggle('hidden', v !== 'app');
+  }
+  function logout() { store.set(null); summary = null; $('code').value = ''; show('login'); }
+  $('logoutBtn').addEventListener('click', logout);
+
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('loginErr').textContent = '';
+    $('loginBtn').disabled = true;
+    try {
+      const r = await api('/api/login', { method: 'POST', json: { name: 'Admin', code: $('code').value } });
+      store.set(r.token);
+      await start();
+    } catch (err) { $('loginErr').textContent = err.message; }
+    finally { $('loginBtn').disabled = false; $('code').value = ''; }
+  });
+
+  document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; renderTabs(); }));
+  function renderTabs() {
+    document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    for (const id of ['overview', 'assign', 'export']) $(id).classList.toggle('hidden', id !== tab);
+  }
+
+  async function start() {
+    try {
+      summary = await api('/api/admin/summary');
+      show('app');
+      renderTabs();
+      renderOverview();
+      renderAssign();
+      renderExport();
+    } catch (err) {
+      if (err.status === 401) { logout(); $('loginErr').textContent = err.message; } else alert(err.message);
+    }
+  }
+
+  // ---------- Overview ----------
+  function stat(v, label) { return h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, label)); }
+
+  function renderOverview() {
+    const o = summary.overall;
+    const root = $('overview');
+    root.replaceChildren(
+      h('div', { class: 'stats' },
+        stat(o.numbers, 'Numbers'),
+        stat(inr(o.total), 'Total allotted'),
+        stat(inr(o.paid), 'Paid'),
+        stat(inr(o.pending), 'Pending'),
+        stat(inr(o.failed), 'Failed (to retry)')),
+      ...summary.people.map(personCard),
+      failedBlock()
+    );
+  }
+
+  function personCard(p) {
+    const next = p.nextSheet;
+    return h('div', { class: 'card' },
+      h('div', { class: 'row' },
+        h('h2', { style: 'margin:0' }, p.name),
+        h('span', { class: 'muted small' }, `${p.numbers} numbers · ${inr(p.total)} total · ${inr(p.paid)} paid`)),
+      p.carry > 0
+        ? h('div', { class: 'callout' }, `Carry-forward: ${inr(p.carry)} from failed payments is still with ${p.name}.`)
+        : null,
+      next
+        ? h('div', { class: 'callout ok' },
+            `Next sheet to fund: Sheet ${next.sheet_no} · total ${inr(next.total)}`,
+            next.carry > 0 ? ` − carry ${inr(next.carry)}` : '',
+            ' = ', h('b', {}, `send ${inr(next.toSend)}`))
+        : h('div', { class: 'muted small', style: 'margin:8px 0' }, 'No unstarted sheet left to fund.'),
+      h('div', { class: 'scroll' },
+        h('table', {},
+          h('thead', {}, h('tr', {},
+            h('th', {}, 'Sheet'), h('th', { class: 'r' }, 'Numbers'), h('th', { class: 'r' }, 'Total to send'),
+            h('th', { class: 'r' }, 'Paid'), h('th', { class: 'r' }, 'Failed'), h('th', { class: 'r' }, 'Pending'))),
+          h('tbody', {}, ...p.sheets.map((s) => h('tr', {},
+            h('td', {}, 'Sheet ' + s.sheet_no),
+            h('td', { class: 'r' }, `${s.paidCount}/${s.count} paid`),
+            h('td', { class: 'r' }, h('b', {}, inr(s.total))),
+            h('td', { class: 'r' }, inr(s.paid)),
+            h('td', { class: 'r' }, inr(s.failed)),
+            h('td', { class: 'r' }, inr(s.pending))))))));
+  }
+
+  function failedBlock() {
+    const list = summary.failedList;
+    if (!list.length) return h('div', { class: 'card muted' }, 'No failed payments right now.');
+    return h('div', { class: 'card' },
+      h('h2', {}, `Failed payments (${list.length})`),
+      h('div', { class: 'small muted' }, 'These stay in their own sheet with the same person until paid.'),
+      h('div', { class: 'scroll' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', { class: 'r' }, 'Amount'))),
+        h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, 'Sheet ' + f.sheet_no), h('td', {}, f.phone), h('td', { class: 'r' }, inr(f.prize_money))))))));
+  }
+
+  // ---------- Add numbers ----------
+  const A = { previewKey: null, ready: false };
+
+  function renderAssign() {
+    const root = $('assign');
+    const names = summary.people.map((p) => p.name);
+    const ta = h('textarea', { id: 'paste', placeholder: 'Paste farmer numbers here, one per line or separated by commas' });
+    const checks = names.map((n) => h('label', { class: 'check' },
+      h('input', { type: 'checkbox', value: n, 'data-person': n }), h('span', {}, n)));
+    const modeAuto = h('input', { type: 'radio', name: 'mode', value: 'auto', checked: true });
+    const modeMan = h('input', { type: 'radio', name: 'mode', value: 'manual' });
+    const topUp = h('input', { type: 'checkbox', id: 'topup' });
+    const manualBox = h('div', { class: 'hidden', id: 'manualBox' },
+      h('div', { class: 'small muted' }, 'How many numbers should each ticked person get?'),
+      h('div', { class: 'checks' }, ...names.map((n) => h('div', { class: 'check', 'data-count-for': n },
+        h('span', { style: 'flex:1' }, n),
+        h('input', { type: 'number', min: '0', step: '1', value: '0', style: 'width:90px', 'data-count': n })))));
+    const out = h('div', { id: 'assignOut' });
+    const previewBtn = h('button', { type: 'button' }, 'Check and preview');
+    const goBtn = h('button', { class: 'primary', type: 'button', disabled: true }, 'Confirm and assign');
+
+    root.replaceChildren(h('div', { class: 'card' },
+      h('h2', {}, 'Add new numbers'),
+      h('p', { class: 'muted small' }, 'Numbers already in the system (paid, pending or failed) are skipped automatically. Each new number gets a fresh random amount from ₹25 to ₹200 when you confirm, and it can never be changed.'),
+      ta,
+      h('h2', { style: 'margin-top:16px' }, 'Who gets them?'),
+      h('div', { class: 'checks' }, ...checks),
+      h('div', { class: 'row', style: 'margin-top:12px' },
+        h('label', { class: 'check' }, modeAuto, h('span', {}, 'Automatic: sheets of 15 dealt in turn')),
+        h('label', { class: 'check' }, modeMan, h('span', {}, 'Manual: choose a count per person'))),
+      manualBox,
+      h('label', { class: 'check', style: 'margin-top:10px' }, topUp, h('span', {}, 'Fill each person\'s short last sheet first')),
+      h('div', { class: 'actions' }, previewBtn, goBtn),
+      out));
+
+    const key = () => JSON.stringify([ta.value, names.filter((n) => root.querySelector(`[data-person="${n}"]`).checked),
+      modeMan.checked ? 'manual' : 'auto', topUp.checked,
+      modeMan.checked ? names.map((n) => root.querySelector(`[data-count="${n}"]`).value) : null]);
+
+    const invalidate = () => { goBtn.disabled = true; A.ready = false; };
+    root.addEventListener('input', () => { manualBox.classList.toggle('hidden', !modeMan.checked); if (key() !== A.previewKey) invalidate(); });
+    root.addEventListener('change', () => { manualBox.classList.toggle('hidden', !modeMan.checked); if (key() !== A.previewKey) invalidate(); });
+
+    function payload(commit) {
+      const people = names.filter((n) => root.querySelector(`[data-person="${n}"]`).checked);
+      const counts = {};
+      for (const n of names) counts[n] = Number(root.querySelector(`[data-count="${n}"]`).value || 0);
+      return { numbers: ta.value, people, mode: modeMan.checked ? 'manual' : 'auto', counts, topUp: topUp.checked, commit };
+    }
+
+    previewBtn.addEventListener('click', async () => {
+      out.replaceChildren();
+      if (!ta.value.trim()) { out.append(h('div', { class: 'err' }, 'Paste some numbers first.')); return; }
+      previewBtn.disabled = true;
+      try {
+        const r = await api('/api/admin/assign', { method: 'POST', json: payload(false) });
+        A.previewKey = key();
+        const s = r.summary;
+        out.append(
+          h('div', { class: 'callout ok' },
+            h('b', {}, `${s.newCount} new number${s.newCount === 1 ? '' : 's'} can be added.`)),
+          h('div', { class: 'small muted' },
+            `Pasted ${s.pasted} · invalid ${s.invalidCount} · repeated in your list ${s.duplicatesInPaste} · already in system ${s.alreadyCount}`,
+            s.alreadyCount ? ` (paid ${s.already.successful}, pending ${s.already.pending}, failed ${s.already.failed})` : ''),
+          s.invalidCount ? h('div', { class: 'small err' }, 'Not valid 10-digit mobile numbers: ' + s.invalid.join(', ') + (s.invalidCount > s.invalid.length ? ' …' : '')) : null
+        );
+        if (!r.plan) {
+          out.append(h('div', { class: 'callout' }, s.newCount ? 'Tick at least one person to see the split.' : 'There are no new numbers to assign.'));
+          return;
+        }
+        out.append(h('h2', { style: 'margin-top:12px' }, 'Planned split'),
+          h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Goes into'))),
+            h('tbody', {}, ...Object.entries(r.plan).map(([n, parts]) => h('tr', {},
+              h('td', {}, n),
+              h('td', {}, parts.length ? parts.map((x) => `Sheet ${x.sheet} (${x.count}, ${x.kind})`).join(' · ') : '—')))))),
+          r.unassigned ? h('div', { class: 'callout' }, `${r.unassigned} number${r.unassigned === 1 ? '' : 's'} will stay unassigned and can be added later.`) : null);
+        goBtn.disabled = false; A.ready = true;
+      } catch (e) {
+        if (e.status === 401) { logout(); return; }
+        out.append(h('div', { class: 'err' }, e.message));
+      } finally { previewBtn.disabled = false; }
+    });
+
+    goBtn.addEventListener('click', async () => {
+      if (!A.ready) return;
+      if (!confirm('Assign these numbers now? Each gets a random amount from ₹25 to ₹200 that can never be changed.')) return;
+      goBtn.disabled = true; previewBtn.disabled = true;
+      try {
+        const r = await api('/api/admin/assign', { method: 'POST', json: payload(true) });
+        ta.value = ''; A.previewKey = null; A.ready = false;
+        out.replaceChildren(h('div', { class: 'callout ok' },
+          h('b', {}, `Assigned ${r.assigned} numbers · total ${inr(r.totalPrize)}.`),
+          ' ', Object.entries(r.plan).filter(([, p]) => p.length).map(([n, p]) => `${n}: ` + p.map((x) => `Sheet ${x.sheet} (${x.count})`).join(', ')).join(' · ')));
+        summary = await api('/api/admin/summary');
+        renderOverview();
+      } catch (e) {
+        if (e.status === 401) { logout(); return; }
+        out.append(h('div', { class: 'err' }, e.message));
+      } finally { previewBtn.disabled = false; }
+    });
+  }
+
+  // ---------- Export ----------
+  function renderExport() {
+    const msg = h('div', { class: 'err' });
+    const btn = h('button', { class: 'primary', type: 'button' }, 'Download CSV (opens in Excel)');
+    btn.addEventListener('click', async () => {
+      msg.textContent = ''; btn.disabled = true;
+      try {
+        const r = await api('/api/admin/export', { raw: true });
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'farmer-payments.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      } catch (e) { if (e.status === 401) logout(); else msg.textContent = e.message; }
+      finally { btn.disabled = false; }
+    });
+    $('export').replaceChildren(h('div', { class: 'card' },
+      h('h2', {}, 'Export everything'),
+      h('p', { class: 'muted small' }, 'One row per farmer number: person, sheet, number, prize money, status, transaction ID, date and time, and farmer name.'),
+      btn, msg));
+  }
+
+  if (store.get()) start(); else show('login');
+})();
+</script>
+</body>
+</html>

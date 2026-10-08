@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Farmer Payments</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="loginView" class="wrap">
+  <form id="loginForm" class="card login" autocomplete="off">
+    <h1>Farmer Payments</h1>
+    <p class="muted">Choose your name and enter your access code.</p>
+    <label for="name">Your name</label>
+    <select id="name" required>
+      <option value="">Select...</option>
+      <option>Ankita</option><option>Shreya</option><option>Dean</option><option>Saswati</option>
+      <option>Ankush</option><option>Jeet</option><option>Nikita</option>
+    </select>
+    <label for="code">Access code</label>
+    <input id="code" type="password" autocapitalize="characters" autocomplete="off" required>
+    <div class="actions"><button class="primary" id="loginBtn" type="submit">Log in</button></div>
+    <div class="err" id="loginErr" role="alert"></div>
+  </form>
+</div>
+
+<div id="appView" class="hidden">
+  <header class="top">
+    <div><h1>Farmer Payments</h1><div class="who" id="who"></div></div>
+    <button class="mini" id="logoutBtn" type="button">Log out</button>
+  </header>
+  <main class="wrap">
+    <div class="stats" id="stats"></div>
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <section id="sheet"></section>
+  </main>
+</div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  const { h, inr, fmtDate, localNowInput, api, copy, store } = FP;
+  const $ = (id) => document.getElementById(id);
+  let data = [];
+  let active = null;
+  let me = '';
+
+  function show(view) {
+    $('loginView').classList.toggle('hidden', view !== 'login');
+    $('appView').classList.toggle('hidden', view !== 'app');
+  }
+
+  function logout() {
+    store.set(null);
+    data = []; active = null;
+    $('code').value = '';
+    show('login');
+  }
+
+  $('logoutBtn').addEventListener('click', logout);
+
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('loginErr').textContent = '';
+    $('loginBtn').disabled = true;
+    try {
+      const r = await api('/api/login', { method: 'POST', json: { name: $('name').value, code: $('code').value } });
+      if (r.role !== 'person') throw new Error('Please use the admin page for admin login.');
+      store.set(r.token);
+      me = r.name;
+      await load();
+    } catch (err) {
+      $('loginErr').textContent = err.message;
+    } finally {
+      $('loginBtn').disabled = false;
+      $('code').value = '';
+    }
+  });
+
+  async function load() {
+    try {
+      const r = await api('/api/my-data');
+      me = r.name;
+      data = r.farmers;
+      const sheets = [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
+      if (active === null || !sheets.includes(active)) {
+        // open the first sheet that still has work to do
+        active = (sheets.find((s) => data.some((f) => f.sheet_no === s && f.status !== 'successful'))) || sheets[0] || null;
+      }
+      $('who').textContent = 'Logged in as ' + me;
+      show('app');
+      render();
+    } catch (err) {
+      if (err.status === 401) { logout(); $('loginErr').textContent = err.message; }
+      else alert(err.message);
+    }
+  }
+
+  function render() {
+    const total = data.length;
+    const paid = data.filter((f) => f.status === 'successful');
+    const failed = data.filter((f) => f.status === 'failed');
+    const sum = (a) => a.reduce((s, f) => s + f.prize_money, 0);
+    $('stats').replaceChildren(
+      stat(total, 'Numbers'),
+      stat(paid.length, 'Paid'),
+      stat(total - paid.length, 'Left to pay'),
+      stat(inr(sum(paid)), 'Amount paid'),
+      stat(inr(sum(data) - sum(paid)), 'Amount left'),
+      failed.length ? stat(failed.length, 'Failed (retry)') : null
+    );
+
+    const sheets = [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
+    $('tabs').replaceChildren(...sheets.map((s) => {
+      const rows = data.filter((f) => f.sheet_no === s);
+      const done = rows.filter((f) => f.status === 'successful').length;
+      return h('button', {
+        class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(s === active),
+        onclick: () => { active = s; render(); },
+      }, `Sheet ${s} · ${done}/${rows.length}`);
+    }));
+
+    const rows = data.filter((f) => f.sheet_no === active);
+    if (!rows.length) { $('sheet').replaceChildren(h('p', { class: 'muted' }, 'No numbers assigned to you yet.')); return; }
+    const done = rows.filter((f) => f.status === 'successful').length;
+    $('sheet').replaceChildren(
+      h('div', { class: 'card' },
+        h('h2', {}, `Sheet ${active}`),
+        h('div', { class: 'muted small' }, `Sheet total ${inr(sum(rows))} · ${done} of ${rows.length} paid · ${inr(sum(rows) - sum(rows.filter((f) => f.status === 'successful')))} left`),
+        h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((done / rows.length) * 100)}%` })),
+        h('div', { class: 'small muted' }, 'Copy each number and amount into your UPI app, pay, then fill in the details and tap "Mark paid". A paid entry is locked and cannot be edited.')
+      ),
+      ...rows.map(farmerCard)
+    );
+  }
+
+  function stat(v, label) {
+    if (v === null) return null;
+    return h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, label));
+  }
+
+  function farmerCard(f) {
+    const isDone = f.status === 'successful';
+    const cls = 'farmer' + (isDone ? ' done' : f.status === 'failed' ? ' failed' : '');
+    const chip = isDone ? h('span', { class: 'chip ok' }, 'Paid · locked')
+      : f.status === 'failed' ? h('span', { class: 'chip bad' }, 'Failed · retry')
+      : h('span', { class: 'chip' }, 'Pending');
+
+    const copyNum = h('button', { class: 'mini', type: 'button' }, 'Copy number');
+    copyNum.addEventListener('click', () => copy(f.phone, copyNum));
+    const copyAmt = h('button', { class: 'mini', type: 'button' }, 'Copy amount');
+    copyAmt.addEventListener('click', () => copy(f.prize_money, copyAmt));
+
+    const top = [
+      h('div', { class: 'head' }, h('span', { class: 'pos' }, `#${f.position}`), chip),
+      h('div', { class: 'pair' }, h('span', { class: 'num' }, f.phone), copyNum),
+      h('div', { class: 'pair' }, h('span', { class: 'amt' }, inr(f.prize_money)), copyAmt),
+    ];
+
+    if (isDone) {
+      return h('div', { class: cls }, ...top,
+        h('div', { class: 'small', style: 'margin-top:8px' },
+          h('div', {}, 'Transaction ID: ', h('b', {}, f.transaction_id)),
+          h('div', {}, 'Farmer: ', h('b', {}, f.farmer_name)),
+          h('div', {}, 'Paid on: ', h('b', {}, fmtDate(f.paid_at)))));
+    }
+
+    const txn = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'characters', placeholder: 'e.g. 412345678901', maxlength: '40' });
+    const nm = h('input', { type: 'text', autocomplete: 'off', placeholder: 'Name as shown in UPI app', maxlength: '80' });
+    const dt = h('input', { type: 'datetime-local', value: localNowInput(), max: localNowInput() });
+    const err = h('div', { class: 'err', role: 'alert' });
+    const okBtn = h('button', { class: 'primary', type: 'button' }, 'Mark paid');
+    const badBtn = h('button', { class: 'danger', type: 'button' }, 'Mark failed');
+
+    async function save(status) {
+      err.textContent = '';
+      if (status === 'successful') {
+        if (!confirm(`Mark ${f.phone} (${inr(f.prize_money)}) as PAID?\nTransaction ID: ${txn.value.trim()}\nThis locks the entry and it cannot be changed.`)) return;
+      } else if (!confirm(`Mark ${f.phone} as FAILED? It stays in this sheet so you can retry it.`)) return;
+      okBtn.disabled = badBtn.disabled = true;
+      try {
+        await api('/api/update', {
+          method: 'POST',
+          json: { id: f.id, status, transaction_id: txn.value, farmer_name: nm.value, paid_at: dt.value ? new Date(dt.value).toISOString() : '' },
+        });
+        await load();
+      } catch (e) {
+        if (e.status === 401) { logout(); return; }
+        err.textContent = e.message;
+        okBtn.disabled = badBtn.disabled = false;
+      }
+    }
+    okBtn.addEventListener('click', () => save('successful'));
+    badBtn.addEventListener('click', () => save('failed'));
+
+    return h('div', { class: cls }, ...top,
+      h('div', { class: 'fields' },
+        h('div', {}, h('label', {}, 'Transaction ID'), txn),
+        h('div', {}, h('label', {}, 'Name of the farmer'), nm),
+        h('div', {}, h('label', {}, 'Date and time'), dt)),
+      h('div', { class: 'actions' }, okBtn, f.status === 'failed' ? null : badBtn),
+      err);
+  }
+
+  if (store.get()) load(); else show('login');
+})();
+</script>
+</body>
+</html>

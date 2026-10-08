@@ -1,0 +1,15 @@
+{
+  "name": "farmer-payments",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Farmer cashback payment tracker (Supabase + Vercel)",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
