@@ -62,3 +62,38 @@ test('no duplicate numbers or (sheet, position) pairs in any allocation', () => 
   assert.strictEqual(new Set(r.rows.map((x) => `${x.name}|${x.sheet_no}|${x.position}`)).size, 250);
   assert.ok(r.rows.every((x) => x.position >= 1 && x.position <= 15));
 });
+
+test('normalize reads sheet rows: phone, farmer name, products (tab separated)', () => {
+  const raw = [
+    'Phone\tFarmer Name\tProducts Purchased',
+    '9000000001\tSample  Farmer\tPlatina 250 ml x 1',
+    '9000000002\tR.SAMPLE RAO\tPlatina 250 ml x 3; Platina 1 ltr x 1',
+    '9000000003\tచిల్లా నాగరాజు\tPlatina 500 ml x 1',
+    '9000000004\tउमेश पाटील\tFantac Plus 500 ml x 7',
+    '9000000005\t\t',
+    '12345\tBad Number\tPlatina 250 ml x 1',
+    '9000000001\tSame Again\tPlatina 250 ml x 9',
+  ].join('\r\n');
+  const r = normalize(raw);
+  assert.deepStrictEqual(r.valid, ['9000000001', '9000000002', '9000000003', '9000000004', '9000000005']);
+  assert.strictEqual(r.duplicatesInPaste, 1);
+  assert.deepStrictEqual(r.invalid, ['12345']);
+  assert.deepStrictEqual(r.info['9000000001'], { name: 'Sample Farmer', products: 'Platina 250 ml x 1' });
+  assert.strictEqual(r.info['9000000002'].products, 'Platina 250 ml x 3; Platina 1 ltr x 1');
+  assert.strictEqual(r.info['9000000003'].name, 'చిల్లా నాగరాజు');
+  assert.deepStrictEqual(r.info['9000000005'], { name: null, products: null });
+});
+
+test('normalize still accepts plain numbers and mixes them with sheet rows', () => {
+  const r = normalize('9876543210\n9876543211\tAsha\tFantac Plus 250 ml x 2\n9876543212, 9876543213');
+  assert.deepStrictEqual(r.valid, ['9876543210', '9876543211', '9876543212', '9876543213']);
+  assert.strictEqual(r.info['9876543210'].name, null);
+  assert.strictEqual(r.info['9876543211'].name, 'Asha');
+  assert.strictEqual(r.invalid.length, 0);
+});
+
+test('normalize trims over-long names and products', () => {
+  const r = normalize('9876543210\t' + 'N'.repeat(200) + '\t' + 'P'.repeat(500));
+  assert.strictEqual(r.info['9876543210'].name.length, 80);
+  assert.strictEqual(r.info['9876543210'].products.length, 300);
+});

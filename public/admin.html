@@ -49,7 +49,7 @@
 <script src="/common.js"></script>
 <script>
 (function () {
-  const { h, inr, api, store, icon, tally, toast, confirmDialog } = FP;
+  const { h, inr, fmtDate, api, store, icon, tally, toast, confirmDialog } = FP;
   const $ = (id) => document.getElementById(id);
   let summary = null;
   let tab = 'overview';
@@ -174,8 +174,8 @@
       list.length
         ? [h('p', { class: 'muted' }, 'Each stays in its sheet with the same person until it is paid.'),
            h('div', { class: 'table-scroll' }, h('table', {},
-             h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', { class: 'r' }, 'Amount'))),
-             h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', { class: 'r' }, inr(f.prize_money)))))))]
+             h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'Products'), h('th', {}, 'Tried at'), h('th', { class: 'r' }, 'Amount'))),
+             h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', {}, f.farmer_name || ''), h('td', { style: 'white-space:normal;min-width:180px' }, f.products || ''), h('td', {}, f.at ? fmtDate(f.at) : ''), h('td', { class: 'r' }, inr(f.prize_money)))))))]
         : h('p', { class: 'muted' }, 'No failed payments right now.'));
   }
 
@@ -183,7 +183,7 @@
   function renderAssign() {
     const names = summary.people.map((p) => p.name);
     const stateByName = {};
-    const ta = h('textarea', { placeholder: 'Paste farmer numbers here, one per line or separated by commas', 'aria-label': 'Farmer numbers' });
+    const ta = h('textarea', { placeholder: 'Paste rows copied from your sheet: Phone, Farmer Name, Products Purchased. Or just numbers, one per line.', 'aria-label': 'Farmer numbers' });
     const personBoxes = names.map((n) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: n, 'data-person': n }), n));
     const modeAuto = h('input', { type: 'radio', name: 'mode', value: 'auto', checked: true });
     const modeMan = h('input', { type: 'radio', name: 'mode', value: 'manual' });
@@ -195,7 +195,8 @@
     const wrap = h('div', {},
       h('h2', {}, 'Add new numbers'),
       h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200 when you assign it, and the amount can never change.'),
-      h('div', { class: 'step' }, h('h3', {}, '1. Paste the numbers'), ta),
+      h('div', { class: 'step' }, h('h3', {}, '1. Paste the numbers'),
+        h('p', { class: 'muted small' }, 'Copy the rows straight from your sheet (columns Phone, Farmer Name, Products Purchased) and paste them here. A plain list of numbers also works; then the person types the farmer name when paying.'), ta),
       h('div', { class: 'step' }, h('h3', {}, '2. Choose who gets them'),
         h('div', { class: 'checks' }, ...personBoxes),
         h('div', { class: 'opt-row' },
@@ -238,6 +239,9 @@
           h('p', { class: 'muted small' },
             `You pasted ${s.pasted}. ${s.invalidCount} not valid, ${s.duplicatesInPaste} repeated in your list, ${s.alreadyCount} already in the system` +
             (s.alreadyCount ? ` (${s.already.successful} paid, ${s.already.pending} pending, ${s.already.failed} failed).` : '.')),
+          s.newCount ? h('p', { class: s.withNames < s.newCount ? 'callout' : 'muted small' },
+            `Farmer names found for ${s.withNames} of ${s.newCount}, products for ${s.withProducts} of ${s.newCount}.` +
+            (s.withNames < s.newCount ? ` ${s.newCount - s.withNames} without a name: the person will type the name when marking those paid.` : '')) : null,
           s.invalidCount ? h('p', { class: 'err small' }, 'Not valid 10-digit mobile numbers: ' + s.invalid.join(', ') + (s.invalidCount > s.invalid.length ? ' and more' : '')) : null);
         if (!r.plan) {
           out.append(h('p', { class: 'callout' }, s.newCount ? 'Tick at least one person to see the split.' : 'There are no new numbers to assign.'));

@@ -6,7 +6,7 @@ module.exports = wrap(async (req, res) => {
   if (!authenticate(req, res, 'admin')) return;
 
   const people = await fetchAll('people', 'id,name', { order: ['name'] });
-  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status', {
+  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status,farmer_name,products,paid_at', {
     order: ['person_id', 'sheet_no', 'position'],
   });
 
@@ -46,7 +46,7 @@ module.exports = wrap(async (req, res) => {
 
   const failedList = farmers
     .filter((f) => f.status === 'failed')
-    .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no }));
+    .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no, farmer_name: f.farmer_name, products: f.products, at: f.paid_at }));
 
   send(res, 200, { overall, people: out, failedList });
 });

@@ -32,16 +32,22 @@
 </main>
 
 <div id="appView" class="hidden">
-  <header class="bar">
+  <header class="bar bar-board">
     <div class="bar-in">
       <div class="brand"><span id="barMark"></span><div><b>Farmer payments</b><div class="who" id="who"></div></div></div>
       <button class="btn btn-quiet btn-small" id="logoutBtn" type="button">Log out</button>
     </div>
   </header>
-  <main class="col">
-    <section class="hero" id="hero"></section>
-    <nav class="sheets" id="tabs" role="tablist" aria-label="Sheets"></nav>
-    <ul class="ledger" id="list"></ul>
+  <main class="col col-board">
+    <section class="band" id="band"></section>
+    <div class="toolbar">
+      <nav class="sheets" id="tabs" role="tablist" aria-label="Sheets"></nav>
+      <div class="seg" id="filter" role="group" aria-label="Show"></div>
+    </div>
+    <div class="board-head" aria-hidden="true">
+      <span>#</span><span>Farmer</span><span>Number</span><span>Amount</span><span>Transaction ID</span><span>Date and time</span><span>Result</span>
+    </div>
+    <ul class="board" id="list"></ul>
     <p class="overall" id="overall"></p>
   </main>
 </div>
@@ -49,16 +55,20 @@
 <script src="/common.js"></script>
 <script>
 (function () {
-  const { h, inr, groupPhone, fmtDate, localNowInput, api, copy, store, icon, tally, toast, confirmDialog } = FP;
+  const { h, inr, groupPhone, fmtDate, localNowInput, api, copy, store, icon, tally, toast } = FP;
   const $ = (id) => document.getElementById(id);
   const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const fine = !!(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches);
   const NAMES = ['Ankita', 'Shreya', 'Dean', 'Saswati', 'Ankush', 'Jeet', 'Nikita'];
   const TXN = /^[A-Za-z0-9]{6,40}$/;
 
   let data = [];
   let active = null;
-  let openId = null;
+  let filter = 'all';
   let drawn = null;
+  let drafts = {};          // typed but not yet saved values, kept across redraws
+  let armed = null;         // the one Paid button waiting for its second tap
+  const autoInputs = new Set();
 
   const sum = (a) => a.reduce((s, f) => s + f.prize_money, 0);
   const stateOf = (f) => (f.status === 'successful' ? 'paid' : f.status === 'failed' ? 'failed' : 'pending');
@@ -70,6 +80,14 @@
     $('appView').classList.toggle('hidden', view !== 'app');
   }
 
+  function disarm() {
+    if (!armed) return;
+    clearTimeout(armed.timer);
+    armed.btn.classList.remove('armed');
+    armed.btn.textContent = 'Paid';
+    armed = null;
+  }
+
   // ---------- Login ----------
   $('loginMark').append(tally(['paid', 'paid', 'paid', 'paid', 'pending'], { height: 40 }));
   $('barMark').append(tally(['paid', 'paid', 'paid', 'paid', 'paid'], { height: 22 }));
@@ -79,7 +97,7 @@
 
   function logout(msg) {
     store.set(null);
-    data = []; active = null; openId = null; drawn = null;
+    data = []; active = null; drawn = null; drafts = {}; disarm();
     $('code').value = '';
     $('loginErr').textContent = msg || '';
     show('login');
@@ -115,48 +133,43 @@
       const sheets = sheetsOf();
       if (active === null || !sheets.includes(active)) {
         active = sheets.find((s) => rowsOf(s).some((f) => f.status !== 'successful')) || sheets[0] || null;
-        openId = null;
       }
-      ensureOpen();
       show('app');
       render();
-      if (opts && opts.scroll) {
-        const el = document.querySelector('.row[data-open="true"]');
-        if (el) el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
-      }
+      if (opts && opts.focusAfter) focusNext(opts.focusAfter);
     } catch (err) {
       if (err.status === 401) logout(err.message);
       else toast(err.message);
     }
   }
 
-  function ensureOpen() {
-    const rows = active === null ? [] : rowsOf(active);
-    if (!rows.some((f) => f.id === openId)) {
-      const next = rows.find((f) => f.status !== 'successful');
-      openId = next ? next.id : null;
-    }
-  }
-
-  function setOpen(id) {
-    openId = id;
-    for (const li of $('list').children) {
-      const open = li.dataset.id === id;
-      li.dataset.open = String(open);
-      li.querySelector('.row-head').setAttribute('aria-expanded', String(open));
-      const body = li.querySelector('.row-body');
-      if (open) body.removeAttribute('inert'); else body.setAttribute('inert', '');
-    }
+  // After a save, bring the next unpaid number of the same sheet into view.
+  function focusNext(prev) {
+    const rows = rowsOf(prev.sheet_no).filter((r) => r.status !== 'successful' && r.id !== prev.id);
+    const next = rows.find((r) => r.position > prev.position) || rows[0];
+    const done = document.querySelector('.rw[data-id="' + prev.id + '"]');
+    if (done) { done.classList.add('just'); }
+    const el = next && document.querySelector('.rw[data-id="' + next.id + '"]');
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    if (fine) { const i = el.querySelector('.in-txn'); if (i) i.focus({ preventScroll: true }); }
   }
 
   // ---------- Render ----------
   function render() {
-    renderHero();
+    disarm();
+    autoInputs.clear();
+    renderBand();
     renderTabs();
-    const rows = active === null ? [] : rowsOf(active);
-    $('list').replaceChildren(...rows.map(rowEl));
-    if (!rows.length) {
+    renderFilter();
+    const all = active === null ? [] : rowsOf(active);
+    const rows = filter === 'todo' ? all.filter((f) => f.status !== 'successful') : all;
+    if (!all.length) {
       $('list').replaceChildren(h('li', { class: 'empty' }, 'No numbers are assigned to you yet. Ask the admin to add a sheet.'));
+    } else if (!rows.length) {
+      $('list').replaceChildren(h('li', { class: 'empty' }, 'Everything on this sheet is paid.'));
+    } else {
+      $('list').replaceChildren(...rows.map(rowEl));
     }
     const paid = data.filter((f) => f.status === 'successful');
     const failed = data.filter((f) => f.status === 'failed');
@@ -166,23 +179,21 @@
       : '';
   }
 
-  function renderHero() {
-    const hero = $('hero');
-    if (active === null) { hero.replaceChildren(); return; }
+  function renderBand() {
+    const band = $('band');
+    if (active === null) { band.replaceChildren(); return; }
     const rows = rowsOf(active);
     const paid = rows.filter((f) => f.status === 'successful');
     const complete = paid.length === rows.length;
     const animate = !reduce && drawn !== active;
     drawn = active;
-    hero.replaceChildren(
-      h('div', { class: 'hero-top' },
-        h('h1', {}, `Sheet ${active}`),
-        h('span', { class: 'sub' }, complete ? 'All paid' : `${paid.length} of ${rows.length} paid`)),
-      tally(rows.map(stateOf), { height: 46, animate }),
-      h('div', { class: 'hero-amount' },
+    band.replaceChildren(
+      h('div', { class: 'band-l' },
+        h('div', { class: 'band-title' }, h('h1', {}, `Sheet ${active}`), h('span', { class: 'sub' }, complete ? 'All paid' : `${paid.length} of ${rows.length} paid`)),
+        tally(rows.map(stateOf), { height: 40, animate })),
+      h('div', { class: 'band-r' },
         h('span', { class: 'big' }, inr(sum(rows) - sum(paid))),
-        h('span', { class: 'lbl' }, complete ? 'left on this sheet' : `left to pay, out of ${inr(sum(rows))}`)),
-      complete ? h('p', { class: 'done-note' }, `Sheet ${active} is complete.`) : null
+        h('span', { class: 'lbl' }, complete ? 'left on this sheet' : `left to pay, out of ${inr(sum(rows))}`))
     );
   }
 
@@ -192,97 +203,135 @@
       const done = rows.filter((f) => f.status === 'successful').length;
       return h('button', {
         class: 'sheet-chip', role: 'tab', type: 'button', 'aria-selected': String(s === active),
-        onclick: () => { active = s; openId = null; ensureOpen(); render(); },
+        onclick: () => { active = s; render(); },
       }, `Sheet ${s}`, done === rows.length ? icon('check', 16) : h('small', {}, `${done}/${rows.length}`));
     }));
   }
 
+  function renderFilter() {
+    const all = active === null ? [] : rowsOf(active);
+    const todo = all.filter((f) => f.status !== 'successful').length;
+    const btn = (key, label) => h('button', { type: 'button', 'aria-pressed': String(filter === key), onclick: () => { filter = key; render(); } }, label);
+    $('filter').replaceChildren(btn('all', `All ${all.length}`), btn('todo', `To do ${todo}`));
+  }
+
+  function copyBtn(cls, text, value, fmt) {
+    const b = h('button', { class: cls, type: 'button', 'aria-label': 'Copy ' + text }, h('span', { class: 'lbl' }, fmt), icon('copy', 18));
+    b.addEventListener('click', () => copy(value, b));
+    return b;
+  }
+
   function rowEl(f) {
     const st = stateOf(f);
-    const open = openId === f.id;
-    const bodyId = 'body-' + f.id;
-    const label = st === 'paid' ? 'Paid' : st === 'failed' ? 'Failed' : 'Not paid yet';
-    const head = h('button', { class: 'row-head', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
-      h('span', { class: 'pos' }, f.position),
-      h('span', { class: 'phone' }, groupPhone(f.phone)),
-      h('span', { class: 'amt' }, inr(f.prize_money)),
-      h('span', { class: 'state', 'data-state': st }, icon(st === 'paid' ? 'check' : st === 'failed' ? 'alert' : 'clock', 17), h('span', { class: 'sr' }, label)));
-    head.addEventListener('click', () => setOpen(openId === f.id ? null : f.id));
-    const body = h('div', { class: 'row-body', id: bodyId }, h('div', { class: 'row-inner' }, st === 'paid' ? paidDetail(f) : formDetail(f)));
-    if (!open) body.setAttribute('inert', '');
-    return h('li', { class: 'row', 'data-state': st, 'data-open': String(open), 'data-id': f.id }, head, body);
-  }
+    const li = h('li', { class: 'rw', 'data-state': st, 'data-id': f.id });
+    const who = h('div', { class: 'c-who' },
+      h('span', { class: 'nm' }, f.farmer_name || 'Name not provided'),
+      f.products ? h('span', { class: 'prod' }, f.products) : null,
+      st === 'failed' ? h('span', { class: 'tag' }, 'Failed earlier. Try again') : null);
 
-  function paidDetail(f) {
-    const fact = (k, v) => h('div', {}, h('dt', {}, k), h('dd', {}, v));
-    return [
-      h('dl', { class: 'facts' }, fact('Transaction ID', f.transaction_id), fact('Farmer', f.farmer_name), fact('Paid on', fmtDate(f.paid_at))),
-      h('p', { class: 'locked' }, icon('lock', 16), 'Locked. A paid entry cannot be edited.'),
-    ];
-  }
+    if (st === 'paid') {
+      li.append(
+        h('span', { class: 'c-pos' }, f.position), who,
+        h('div', { class: 'c-num' }, h('span', { class: 'plain-num' }, groupPhone(f.phone))),
+        h('div', { class: 'c-amt' }, h('span', { class: 'plain-amt' }, inr(f.prize_money))),
+        h('div', { class: 'c-txn' }, h('div', { class: 'paid-facts' }, h('span', {}, 'Transaction ID'), h('b', {}, f.transaction_id))),
+        h('div', { class: 'c-time' }, h('div', { class: 'paid-facts' }, h('span', {}, 'Paid on'), h('b', {}, fmtDate(f.paid_at)))),
+        h('div', { class: 'c-act' }, h('span', { class: 'paid-flag' }, h('span', { class: 'state', 'data-state': 'paid' }, icon('check', 16)), 'Paid, locked')));
+      return li;
+    }
 
-  function formDetail(f) {
-    const cNum = h('button', { class: 'btn btn-copy', type: 'button' }, icon('copy', 18), h('span', { class: 'lbl' }, 'Copy number'));
-    const cAmt = h('button', { class: 'btn btn-copy', type: 'button' }, icon('copy', 18), h('span', { class: 'lbl' }, 'Copy amount'));
-    cNum.addEventListener('click', () => copy(f.phone, cNum));
-    cAmt.addEventListener('click', () => copy(f.prize_money, cAmt));
+    // ----- a number still to pay (or to retry) -----
+    const d = drafts[f.id] || (drafts[f.id] = { txn: '', nm: '', dt: '', auto: true });
+    const needName = !f.farmer_name;
+    const err = h('p', { class: 'row-err', role: 'alert' });
 
-    const txn = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '40', placeholder: 'e.g. 412345678901' });
-    const nm = h('input', { type: 'text', autocomplete: 'off', maxlength: '80', placeholder: 'As shown in your UPI app' });
-    const dt = h('input', { type: 'datetime-local', value: localNowInput(), max: localNowInput() });
-    const hint = h('p', { class: 'hint', 'aria-live': 'polite' });
-    const err = h('p', { class: 'err', role: 'alert' });
-    const okBtn = h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: true }, 'Mark paid');
-    const badBtn = h('button', { class: 'btn btn-ghost-danger btn-block', type: 'button' }, 'Mark failed');
+    const txn = h('input', { class: 'in-txn', type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '40', placeholder: 'Transaction ID', 'aria-label': 'Transaction ID for ' + groupPhone(f.phone), value: d.txn });
+    const nm = needName ? h('input', { class: 'name-in', type: 'text', autocomplete: 'off', maxlength: '80', placeholder: 'Type the farmer name', 'aria-label': 'Farmer name', value: d.nm }) : null;
+    if (nm) who.append(nm);
 
+    const dt = h('input', { type: 'datetime-local', 'aria-label': 'Date and time', max: localNowInput(), value: d.auto || !d.dt ? localNowInput() : d.dt });
+    const tmeta = h('div', { class: 'tmeta' });
+    function paintMeta() {
+      tmeta.replaceChildren();
+      if (d.auto) tmeta.append(h('b', {}, 'Now'), ' (set automatically)');
+      else tmeta.append('Custom time ', h('button', { type: 'button', onclick: () => { d.auto = true; dt.value = localNowInput(); dt.max = localNowInput(); paintMeta(); } }, 'Use now'));
+    }
+    paintMeta();
+    if (d.auto) autoInputs.add({ el: dt, d });
+    dt.addEventListener('input', () => { d.dt = dt.value; d.auto = false; autoInputs.forEach((x) => { if (x.el === dt) autoInputs.delete(x); }); paintMeta(); sync(); });
+    dt.addEventListener('change', () => { if (!dt.value) { d.auto = true; dt.value = localNowInput(); paintMeta(); sync(); } });
+
+    const okBtn = h('button', { class: 'btn btn-primary btn-paid', type: 'button', disabled: true }, 'Paid');
+    const badBtn = h('button', { class: 'btn btn-ghost-danger', type: 'button' }, 'Failed');
+
+    function valid() {
+      const tOk = TXN.test(txn.value.trim());
+      const nOk = !needName || nm.value.trim().length >= 2;
+      return tOk && nOk && !!dt.value;
+    }
     function sync() {
       const t = txn.value.trim();
-      const tOk = TXN.test(t);
-      const nOk = nm.value.trim().length >= 2;
-      okBtn.disabled = !(tOk && nOk && dt.value);
-      hint.textContent = okBtn.disabled
-        ? (t && !tOk ? 'The transaction ID is 6 to 40 letters or digits, with no spaces.' : 'Fill in the transaction ID and the farmer name to mark this paid.')
-        : '';
+      txn.setAttribute('aria-invalid', String(!!t && !TXN.test(t)));
+      okBtn.disabled = !valid();
+      if (armed && armed.btn === okBtn) disarm();
+      err.textContent = '';
     }
-    [txn, nm, dt].forEach((i) => i.addEventListener('input', sync));
+    txn.addEventListener('input', () => { d.txn = txn.value; sync(); });
+    txn.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !okBtn.disabled) { e.preventDefault(); okBtn.click(); } });
+    if (nm) nm.addEventListener('input', () => { d.nm = nm.value; sync(); });
     sync();
 
+    function whenIso() {
+      return (d.auto || !dt.value) ? new Date().toISOString() : new Date(dt.value).toISOString();
+    }
     async function save(status) {
       err.textContent = '';
-      const ok = await confirmDialog(status === 'successful'
-        ? { title: `Mark ${inr(f.prize_money)} as paid?`, body: [`${groupPhone(f.phone)}, transaction ${txn.value.trim()}.`, 'A paid entry is locked and cannot be edited afterwards.'], confirmText: 'Mark paid' }
-        : { title: 'Mark this payment as failed?', body: [`${groupPhone(f.phone)} stays on this sheet so you can try it again.`], confirmText: 'Mark failed', danger: true });
-      if (!ok) return;
+      if (!d.auto && dt.value && new Date(dt.value).getTime() > Date.now() + 5 * 60 * 1000) {
+        err.textContent = 'The date and time cannot be in the future.';
+        return;
+      }
       okBtn.disabled = true; badBtn.disabled = true;
       try {
         await api('/api/update', {
           method: 'POST',
-          json: { id: f.id, status, transaction_id: txn.value, farmer_name: nm.value, paid_at: dt.value ? new Date(dt.value).toISOString() : '' },
+          json: { id: f.id, status, transaction_id: txn.value, farmer_name: nm ? nm.value : undefined, paid_at: whenIso() },
         });
-        const rows = rowsOf(f.sheet_no).filter((r) => r.id !== f.id && r.status !== 'successful');
-        const after = rows.find((r) => r.position > f.position) || rows[0];
-        openId = after ? after.id : null;
-        toast(status === 'successful' ? 'Marked paid' : 'Marked failed');
-        await load({ scroll: true });
+        delete drafts[f.id];
+        toast(status === 'successful' ? `Paid ${inr(f.prize_money)} saved` : 'Marked failed');
+        await load({ focusAfter: f });
       } catch (e) {
         if (e.status === 401) { logout(e.message); return; }
-        err.textContent = e.message;
         badBtn.disabled = false; sync();
+        err.textContent = e.message;
       }
     }
-    okBtn.addEventListener('click', () => save('successful'));
-    badBtn.addEventListener('click', () => save('failed'));
+    // Paid needs a second tap to confirm, because a paid entry is locked for good.
+    okBtn.addEventListener('click', () => {
+      if (okBtn.disabled) return;
+      if (armed && armed.btn === okBtn) { disarm(); save('successful'); return; }
+      disarm();
+      okBtn.classList.add('armed');
+      okBtn.textContent = `Confirm ${inr(f.prize_money)}`;
+      armed = { btn: okBtn, timer: setTimeout(disarm, 4500) };
+    });
+    badBtn.addEventListener('click', () => { disarm(); save('failed'); });
 
-    return [
-      f.status === 'failed' ? h('p', { class: 'note note-failed' }, 'This payment did not go through earlier. Try it again, then mark it paid.') : null,
-      h('div', { class: 'copy-row' }, cNum, cAmt),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Transaction ID'), txn),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name of the farmer'), nm),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Date and time'), dt),
-      hint, err,
-      h('div', { class: 'actions' }, okBtn, f.status === 'failed' ? null : badBtn),
-    ];
+    li.append(
+      h('span', { class: 'c-pos' }, f.position), who,
+      h('div', { class: 'c-num' }, copyBtn('numbtn', 'number', f.phone, groupPhone(f.phone))),
+      h('div', { class: 'c-amt' }, copyBtn('amtbtn', 'amount', f.prize_money, inr(f.prize_money))),
+      h('div', { class: 'c-txn' }, txn),
+      h('div', { class: 'c-time' }, dt, tmeta),
+      h('div', { class: 'c-act' }, okBtn, badBtn),
+      err);
+    return li;
   }
+
+  // Keep every automatic time current while the page is open.
+  setInterval(() => {
+    const now = localNowInput();
+    autoInputs.forEach((x) => { if (x.el.isConnected && x.d.auto && document.activeElement !== x.el) { x.el.value = now; x.el.max = now; } });
+  }, 15000);
 
   if (store.get()) load(); else show('login');
 })();

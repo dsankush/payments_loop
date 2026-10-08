@@ -15,7 +15,7 @@ module.exports = wrap(async (req, res) => {
   const raw = typeof b.numbers === 'string' ? b.numbers : '';
   if (raw.length > 200000) return send(res, 400, { error: 'That list is too long.' });
 
-  const { valid, invalid, duplicatesInPaste } = normalize(raw);
+  const { valid, invalid, duplicatesInPaste, info } = normalize(raw);
   if (valid.length > MAX_NUMBERS) return send(res, 400, { error: `Please add at most ${MAX_NUMBERS} numbers at a time.` });
 
   const supa = db();
@@ -55,6 +55,8 @@ module.exports = wrap(async (req, res) => {
     already,
     alreadyCount: existing.size,
     newCount: pool.length,
+    withNames: pool.filter((p) => info[p] && info[p].name).length,
+    withProducts: pool.filter((p) => info[p] && info[p].products).length,
     people: peopleState,
   };
 
@@ -87,6 +89,8 @@ module.exports = wrap(async (req, res) => {
     position: r.position,
     phone: r.phone,
     prize_money: randomPrize(),
+    farmer_name: (info[r.phone] && info[r.phone].name) || null,
+    products: (info[r.phone] && info[r.phone].products) || null,
   }));
   const { error } = await supa.from('farmers').insert(insertRows);
   if (error) {

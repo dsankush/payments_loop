@@ -27,3 +27,10 @@ The browser never talks to the database. Only the server functions do, using a s
 
 ## Tests
 `npm install` then `npm test`.
+
+## Farmer names, products and the time stamp
+
+- Each number can carry a **farmer name** and the **products purchased**. They are loaded with the numbers, shown on the person's board, and can never be changed afterwards (a database trigger enforces this).
+- **Add numbers** (admin) accepts rows copied straight from a sheet (columns `Phone`, `Farmer Name`, `Products Purchased`, tab separated) or a plain list of numbers. A number that comes without a name needs the person to type the name when marking it paid.
+- The person's page shows all 15 numbers of a sheet at once. **Paid** and **Failed** record the **current time automatically**; the person can change the time before saving. Paid needs a second tap to confirm because a paid entry is locked.
+- Run the tests with `npm test`.
