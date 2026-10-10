@@ -122,6 +122,8 @@
 
       paidTable(),
 
+      dailyTable(),
+
       h('div', { class: 'section' },
         h('h2', {}, 'Money to send'),
         h('p', { class: 'muted' }, 'For each person’s next unstarted sheet. Money from failed payments is still with them, so it is taken off.'),
@@ -157,6 +159,36 @@
           h('td', {}, h('b', {}, r.name)), count(r.paidN, r.numbers), money(r.paid, 'ok'), money(r.failed), money(r.pending), money(r.total)))),
         h('tfoot', {}, h('tr', {},
           h('td', {}, 'All people'), count(t.paidN, t.numbers), money(t.paid, 'ok'), money(t.failed), money(t.pending), money(t.total))))));
+  }
+
+  // Paid by calendar day, one column per person
+  function dailyTable() {
+    const days = summary.daily || [];
+    const names = summary.people.map((p) => p.name);
+    const dayLabel = (iso) => new Date(iso + 'T12:00:00+05:30').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+    const th = (x, r) => h('th', r ? { class: 'r' } : {}, x);
+    const cell = (v) => h('td', { class: 'r' }, v ? inr(v.amount) : h('span', { class: 'muted' }, '–'));
+    if (!days.length) {
+      return h('div', { class: 'section' }, h('h2', {}, 'Paid by date'), h('p', { class: 'muted' }, 'No successful payments yet. They appear here day by day as people mark them paid.'));
+    }
+    const totalBy = {};
+    let totalN = 0, totalAmt = 0;
+    for (const d of days) {
+      totalN += d.count; totalAmt += d.amount;
+      for (const n of names) if (d.byPerson[n]) {
+        totalBy[n] = totalBy[n] || { count: 0, amount: 0 };
+        totalBy[n].count += d.byPerson[n].count; totalBy[n].amount += d.byPerson[n].amount;
+      }
+    }
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Paid by date'),
+      h('p', { class: 'muted' }, 'Successful payments on each day (India time), split by person.'),
+      h('div', { class: 'table-scroll' }, h('table', { class: 'paid-table daily-table' },
+        h('thead', {}, h('tr', {}, th('Date'), th('Numbers', true), th('Amount', true), ...names.map((n) => th(n, true)))),
+        h('tbody', {}, ...days.map((d) => h('tr', {},
+          h('td', {}, h('b', {}, dayLabel(d.date))), h('td', { class: 'r' }, d.count), h('td', { class: 'r ok' }, inr(d.amount)),
+          ...names.map((n) => cell(d.byPerson[n]))))),
+        h('tfoot', {}, h('tr', {}, h('td', {}, 'All days'), h('td', { class: 'r' }, totalN), h('td', { class: 'r ok' }, inr(totalAmt)), ...names.map((n) => cell(totalBy[n])))))));
   }
 
   function sendRow(p) {

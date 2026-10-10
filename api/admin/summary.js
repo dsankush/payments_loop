@@ -48,5 +48,23 @@ module.exports = wrap(async (req, res) => {
     .filter((f) => f.status === 'failed')
     .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no, farmer_name: f.farmer_name, products: f.products, at: f.paid_at }));
 
-  send(res, 200, { overall, people: out, failedList });
+  // Successful payments grouped by calendar day (India time), newest day first.
+  const dayOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const days = new Map();
+  for (const f of farmers) {
+    if (f.status !== 'successful' || !f.paid_at) continue;
+    const day = dayOf(f.paid_at);
+    if (!days.has(day)) days.set(day, { date: day, count: 0, amount: 0, byPerson: {} });
+    const d = days.get(day);
+    const name = byPerson.get(f.person_id)?.name;
+    if (!name) continue;
+    d.count++;
+    d.amount += f.prize_money;
+    d.byPerson[name] = d.byPerson[name] || { count: 0, amount: 0 };
+    d.byPerson[name].count++;
+    d.byPerson[name].amount += f.prize_money;
+  }
+  const daily = [...days.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  send(res, 200, { overall, people: out, failedList, daily });
 });
