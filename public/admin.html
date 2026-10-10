@@ -120,6 +120,8 @@
         h('span', { style: '--c:var(--chilli)' }, `Failed ${inr(o.failed)}`),
         h('span', { style: '--c:var(--turmeric)' }, `Not yet paid ${inr(o.pending)}`)),
 
+      paidTable(),
+
       h('div', { class: 'section' },
         h('h2', {}, 'Money to send'),
         h('p', { class: 'muted' }, 'For each person’s next unstarted sheet. Money from failed payments is still with them, so it is taken off.'),
@@ -132,6 +134,29 @@
 
       failedBlock()
     );
+  }
+
+  // Paid so far, person by person
+  function paidTable() {
+    const sum = (p, k) => p.sheets.reduce((a, x) => a + x[k], 0);
+    const rows = summary.people.map((p) => ({
+      name: p.name, paidN: sum(p, 'paidCount'), paid: p.paid, failedN: sum(p, 'failedCount'), failed: p.failed,
+      pendN: sum(p, 'pendingCount'), pending: p.pending, numbers: p.numbers, total: p.total,
+    }));
+    const t = rows.reduce((a, r) => ({ paidN: a.paidN + r.paidN, paid: a.paid + r.paid, failedN: a.failedN + r.failedN, failed: a.failed + r.failed,
+      pendN: a.pendN + r.pendN, pending: a.pending + r.pending, numbers: a.numbers + r.numbers, total: a.total + r.total }), { paidN: 0, paid: 0, failedN: 0, failed: 0, pendN: 0, pending: 0, numbers: 0, total: 0 });
+    const th = (x, r) => h('th', r ? { class: 'r' } : {}, x);
+    const money = (n, cls) => h('td', { class: 'r' + (cls ? ' ' + cls : '') }, inr(n));
+    const count = (n, of) => h('td', { class: 'r' }, `${n} of ${of}`);
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Paid by person'),
+      h('p', { class: 'muted' }, 'Successful payments only. Failed and not yet paid amounts are shown next to them.'),
+      h('div', { class: 'table-scroll' }, h('table', { class: 'paid-table' },
+        h('thead', {}, h('tr', {}, th('Person'), th('Paid numbers', true), th('Paid amount', true), th('Failed', true), th('Not yet paid', true), th('Total', true))),
+        h('tbody', {}, ...rows.map((r) => h('tr', {},
+          h('td', {}, h('b', {}, r.name)), count(r.paidN, r.numbers), money(r.paid, 'ok'), money(r.failed), money(r.pending), money(r.total)))),
+        h('tfoot', {}, h('tr', {},
+          h('td', {}, 'All people'), count(t.paidN, t.numbers), money(t.paid, 'ok'), money(t.failed), money(t.pending), money(t.total))))));
   }
 
   function sendRow(p) {

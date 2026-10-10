@@ -322,3 +322,8 @@ tbody tr:last-child td { border-bottom: 0; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .tally.draw line { stroke-dasharray: none; stroke-dashoffset: 0; }
 }
+
+/* Paid by person */
+.paid-table td.ok { color: var(--paddy-ink); font-weight: 700; }
+.paid-table tfoot td { border-top: 2px solid var(--ink); border-bottom: 0; font-weight: 700; padding-top: 12px; }
+.paid-table td, .paid-table th { font-variant-numeric: tabular-nums; }
