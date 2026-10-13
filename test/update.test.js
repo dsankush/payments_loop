@@ -63,9 +63,9 @@ test('a paid number is locked', async () => {
   assert.strictEqual(r.code, 409);
 });
 
-test('no time sent: the server uses the current time (for both paid and failed)', async () => {
+test('no time sent: the server uses the current time (failed needs a remark)', async () => {
   const t0 = Date.now();
-  const r = await call(tok, { id: ID2, status: 'failed' });
+  const r = await call(tok, { id: ID2, status: 'failed', remark: 'Farmer phone switched off' });
   assert.strictEqual(r.code, 200);
   assert.ok(Math.abs(new Date(r.body.farmer.paid_at).getTime() - t0) < 3000);
 });
@@ -84,8 +84,44 @@ test('number without a name needs one; transaction id rules; future time refused
   assert.strictEqual(r.body.farmer.farmer_name, 'Typed Name');
 });
 
+test('failed needs a reason; pending can carry a note; remark rules', async () => {
+  rows.push(mkRow({ id: '00000000-0000-4000-8000-000000000005', farmer_name: 'Remark Farmer' }));
+  const R = '00000000-0000-4000-8000-000000000005';
+  let r = await call(tok, { id: R, status: 'failed' });
+  assert.strictEqual(r.code, 400);
+  assert.match(r.body.error, /remark/i);
+  r = await call(tok, { id: R, status: 'failed', remark: '  ' });
+  assert.strictEqual(r.code, 400);
+  r = await call(tok, { id: R, status: 'failed', remark: 'x'.repeat(201) });
+  assert.strictEqual(r.code, 400);
+  r = await call(tok, { id: R, status: 'failed', remark: 'Bank  server   down' });
+  assert.strictEqual(r.code, 200);
+  assert.strictEqual(r.body.farmer.status, 'failed');
+  assert.strictEqual(r.body.farmer.remark, 'Bank server down');
+  // back to pending with a note: time and transaction cleared
+  r = await call(tok, { id: R, status: 'pending', remark: 'Will retry tomorrow' });
+  assert.strictEqual(r.code, 200);
+  assert.strictEqual(r.body.farmer.status, 'pending');
+  assert.strictEqual(r.body.farmer.paid_at, null);
+  assert.strictEqual(r.body.farmer.remark, 'Will retry tomorrow');
+  // pending without a note is fine and clears it
+  r = await call(tok, { id: R, status: 'pending' });
+  assert.strictEqual(r.code, 200);
+  assert.strictEqual(r.body.farmer.remark, null);
+  // paying clears the failure remark
+  await call(tok, { id: R, status: 'failed', remark: 'Wrong UPI id' });
+  r = await call(tok, { id: R, status: 'successful', transaction_id: 'UPI999999', remark: 'ignored' });
+  assert.strictEqual(r.code, 200);
+  assert.strictEqual(r.body.farmer.remark, null);
+  // and now it is locked for pending too
+  r = await call(tok, { id: R, status: 'pending', remark: 'oops' });
+  assert.strictEqual(r.code, 409);
+  r = await call(tok, { id: ID3, status: 'bogus' });
+  assert.strictEqual(r.code, 400);
+});
+
 test("someone else's number and bad ids are refused", async () => {
-  let r = await call(tok, { id: ID3, status: 'failed' });
+  let r = await call(tok, { id: ID3, status: 'failed', remark: 'test reason' });
   assert.strictEqual(r.code, 404);
   r = await call(tok, { id: 'abc', status: 'failed' });
   assert.strictEqual(r.code, 400);

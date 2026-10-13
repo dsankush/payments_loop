@@ -4,15 +4,25 @@ const { db, send, authenticate, method, body, wrap } = require('../lib/auth');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TXN = /^[A-Za-z0-9]{6,40}$/;
 const FUTURE_SLACK_MS = 10 * 60 * 1000;
+const REMARK_MAX = 200;
 
 module.exports = wrap(async (req, res) => {
   if (!method(req, res, 'POST')) return;
   const a = authenticate(req, res, 'person');
   if (!a) return;
 
-  const { id, status, transaction_id, farmer_name, paid_at } = body(req);
+  const { id, status, transaction_id, farmer_name, paid_at, remark } = body(req);
   if (typeof id !== 'string' || !UUID.test(id)) return send(res, 400, { error: 'Invalid entry.' });
-  if (status !== 'successful' && status !== 'failed') return send(res, 400, { error: 'Invalid status.' });
+  if (status !== 'successful' && status !== 'failed' && status !== 'pending') return send(res, 400, { error: 'Invalid status.' });
+
+  // The remark is the person's own note, e.g. why a payment failed.
+  let note = null;
+  if (remark !== undefined && remark !== null) {
+    if (typeof remark !== 'string') return send(res, 400, { error: 'Invalid remark.' });
+    note = remark.trim().replace(/\s+/g, ' ');
+    if (note.length > REMARK_MAX) return send(res, 400, { error: `The remark can be at most ${REMARK_MAX} characters.` });
+    if (!note) note = null;
+  }
 
   // The time is whatever the person chose. If none is sent, the time of this request is used.
   let when = new Date();
@@ -34,12 +44,16 @@ module.exports = wrap(async (req, res) => {
   if (row.status === 'successful') return send(res, 409, { error: 'This number is already marked successful (locked).' });
 
   let patch;
-  if (status === 'failed') {
-    patch = { status: 'failed', paid_at: when.toISOString() };
+  if (status === 'pending') {
+    // Back to pending (or just a note on a pending number). The time of any earlier attempt stays in the history.
+    patch = { status: 'pending', paid_at: null, transaction_id: null, remark: note };
+  } else if (status === 'failed') {
+    if (!note || note.length < 3) return send(res, 400, { error: 'Write the reason in the remark box before marking it failed.' });
+    patch = { status: 'failed', paid_at: when.toISOString(), remark: note };
   } else {
     const txn = typeof transaction_id === 'string' ? transaction_id.trim() : '';
     if (!TXN.test(txn)) return send(res, 400, { error: 'Transaction ID must be 6 to 40 letters or digits, no spaces.' });
-    patch = { status: 'successful', transaction_id: txn, paid_at: when.toISOString() };
+    patch = { status: 'successful', transaction_id: txn, paid_at: when.toISOString(), remark: null };
     // The farmer's name normally comes with the data and cannot be changed.
     // Only a number that came without a name needs one typed in now.
     if (!row.farmer_name) {
@@ -55,7 +69,7 @@ module.exports = wrap(async (req, res) => {
     .eq('id', id)
     .eq('person_id', a.pid)
     .neq('status', 'successful')
-    .select('id,status,transaction_id,farmer_name,products,paid_at')
+    .select('id,status,transaction_id,farmer_name,products,paid_at,state,remark')
     .maybeSingle();
 
   if (error) {

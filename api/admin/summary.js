@@ -6,7 +6,7 @@ module.exports = wrap(async (req, res) => {
   if (!authenticate(req, res, 'admin')) return;
 
   const people = await fetchAll('people', 'id,name', { order: ['name'] });
-  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status,farmer_name,products,paid_at', {
+  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status,farmer_name,products,paid_at,state,remark', {
     order: ['person_id', 'sheet_no', 'position'],
   });
 
@@ -46,7 +46,25 @@ module.exports = wrap(async (req, res) => {
 
   const failedList = farmers
     .filter((f) => f.status === 'failed')
-    .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no, farmer_name: f.farmer_name, products: f.products, at: f.paid_at }));
+    .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no, farmer_name: f.farmer_name, products: f.products, state: f.state, remark: f.remark, at: f.paid_at }));
+
+  // Pending numbers that carry a note from the person (e.g. farmer not picking up).
+  const notedList = farmers
+    .filter((f) => f.status === 'pending' && f.remark)
+    .map((f) => ({ phone: f.phone, prize_money: f.prize_money, person: byPerson.get(f.person_id)?.name, sheet_no: f.sheet_no, farmer_name: f.farmer_name, products: f.products, state: f.state, remark: f.remark }));
+
+  // Totals by state. Numbers without a state are grouped as "Not set".
+  const stateMap = new Map();
+  for (const f of farmers) {
+    const k = f.state || 'Not set';
+    if (!stateMap.has(k)) stateMap.set(k, { state: k, numbers: 0, total: 0, paidCount: 0, paid: 0, failed: 0, pending: 0 });
+    const t = stateMap.get(k);
+    t.numbers++; t.total += f.prize_money;
+    if (f.status === 'successful') { t.paidCount++; t.paid += f.prize_money; }
+    else if (f.status === 'failed') t.failed += f.prize_money;
+    else t.pending += f.prize_money;
+  }
+  const byState = [...stateMap.values()].sort((a, b) => b.paid - a.paid || a.state.localeCompare(b.state));
 
   // Successful payments grouped by calendar day (India time), newest day first.
   const dayOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -66,5 +84,5 @@ module.exports = wrap(async (req, res) => {
   }
   const daily = [...days.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  send(res, 200, { overall, people: out, failedList, daily });
+  send(res, 200, { overall, people: out, failedList, notedList, byState, daily });
 });

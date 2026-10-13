@@ -124,6 +124,8 @@
 
       dailyTable(),
 
+      stateTable(),
+
       h('div', { class: 'section' },
         h('h2', {}, 'Money to send'),
         h('p', { class: 'muted' }, 'For each person’s next unstarted sheet. Money from failed payments is still with them, so it is taken off.'),
@@ -134,7 +136,9 @@
         h('h2', {}, 'By person'),
         h('div', {}, ...summary.people.map(personEl))),
 
-      failedBlock()
+      failedBlock(),
+
+      notedBlock()
     );
   }
 
@@ -191,6 +195,24 @@
         h('tfoot', {}, h('tr', {}, h('td', {}, 'All days'), h('td', { class: 'r' }, totalN), h('td', { class: 'r ok' }, inr(totalAmt)), ...names.map((n) => cell(totalBy[n])))))));
   }
 
+  // Paid, failed and pending by state
+  function stateTable() {
+    const rows = summary.byState || [];
+    if (!rows.length) return null;
+    const th = (x, r) => h('th', r ? { class: 'r' } : {}, x);
+    const money = (n, cls) => h('td', { class: 'r' + (cls ? ' ' + cls : '') }, inr(n));
+    const t = rows.reduce((a, r) => ({ numbers: a.numbers + r.numbers, paidCount: a.paidCount + r.paidCount, paid: a.paid + r.paid, failed: a.failed + r.failed, pending: a.pending + r.pending, total: a.total + r.total }),
+      { numbers: 0, paidCount: 0, paid: 0, failed: 0, pending: 0, total: 0 });
+    const count = (n, of) => h('td', { class: 'r' }, `${n} of ${of}`);
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Paid by state'),
+      h('p', { class: 'muted' }, 'Successful payments for each state, with what is still failed or not yet paid.'),
+      h('div', { class: 'table-scroll' }, h('table', { class: 'paid-table' },
+        h('thead', {}, h('tr', {}, th('State'), th('Paid numbers', true), th('Paid amount', true), th('Failed', true), th('Not yet paid', true), th('Total', true))),
+        h('tbody', {}, ...rows.map((r) => h('tr', {}, h('td', {}, h('b', {}, r.state)), count(r.paidCount, r.numbers), money(r.paid, 'ok'), money(r.failed), money(r.pending), money(r.total)))),
+        h('tfoot', {}, h('tr', {}, h('td', {}, 'All states'), count(t.paidCount, t.numbers), money(t.paid, 'ok'), money(t.failed), money(t.pending), money(t.total))))));
+  }
+
   function sendRow(p) {
     const n = p.nextSheet;
     return h('li', { class: 'send-row' },
@@ -231,16 +253,28 @@
       list.length
         ? [h('p', { class: 'muted' }, 'Each stays in its sheet with the same person until it is paid.'),
            h('div', { class: 'table-scroll' }, h('table', {},
-             h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'Products'), h('th', {}, 'Tried at'), h('th', { class: 'r' }, 'Amount'))),
-             h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', {}, f.farmer_name || ''), h('td', { style: 'white-space:normal;min-width:180px' }, f.products || ''), h('td', {}, f.at ? fmtDate(f.at) : ''), h('td', { class: 'r' }, inr(f.prize_money)))))))]
+             h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'State'), h('th', {}, 'Products'), h('th', {}, 'Remark'), h('th', {}, 'Tried at'), h('th', { class: 'r' }, 'Amount'))),
+             h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', {}, f.farmer_name || ''), h('td', {}, f.state || ''), h('td', { style: 'white-space:normal;min-width:180px' }, f.products || ''), h('td', { style: 'white-space:normal;min-width:200px' }, f.remark || ''), h('td', {}, f.at ? fmtDate(f.at) : ''), h('td', { class: 'r' }, inr(f.prize_money)))))))]
         : h('p', { class: 'muted' }, 'No failed payments right now.'));
+  }
+
+  // Pending numbers where the person left a note
+  function notedBlock() {
+    const list = summary.notedList || [];
+    if (!list.length) return null;
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Pending with a remark'),
+      h('p', { class: 'muted' }, 'Not paid yet, and the person left a note.'),
+      h('div', { class: 'table-scroll' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'State'), h('th', {}, 'Remark'), h('th', { class: 'r' }, 'Amount'))),
+        h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', {}, f.farmer_name || ''), h('td', {}, f.state || ''), h('td', { style: 'white-space:normal;min-width:220px' }, f.remark || ''), h('td', { class: 'r' }, inr(f.prize_money))))))));
   }
 
   // ---------- Add numbers ----------
   function renderAssign() {
     const names = summary.people.map((p) => p.name);
     const stateByName = {};
-    const ta = h('textarea', { placeholder: 'Paste rows copied from your sheet: Phone, Farmer Name, Products Purchased. Or just numbers, one per line.', 'aria-label': 'Farmer numbers' });
+    const ta = h('textarea', { placeholder: 'Paste rows copied from your sheet: Phone, Farmer Name, Products Purchased, State. Or just numbers, one per line.', 'aria-label': 'Farmer numbers' });
     const personBoxes = names.map((n) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: n, 'data-person': n }), n));
     const modeAuto = h('input', { type: 'radio', name: 'mode', value: 'auto', checked: true });
     const modeMan = h('input', { type: 'radio', name: 'mode', value: 'manual' });
@@ -251,7 +285,7 @@
     const goBtn = h('button', { class: 'btn btn-primary', type: 'button', disabled: true }, 'Assign numbers');
     const wrap = h('div', {},
       h('h2', {}, 'Add new numbers'),
-      h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200 when you assign it, and the amount can never change.'),
+      h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200, in steps of ₹5, when you assign it, and the amount can never change.'),
       h('div', { class: 'step' }, h('h3', {}, '1. Paste the numbers'),
         h('p', { class: 'muted small' }, 'Copy the rows straight from your sheet (columns Phone, Farmer Name, Products Purchased) and paste them here. A plain list of numbers also works; then the person types the farmer name when paying.'), ta),
       h('div', { class: 'step' }, h('h3', {}, '2. Choose who gets them'),
@@ -297,7 +331,7 @@
             `You pasted ${s.pasted}. ${s.invalidCount} not valid, ${s.duplicatesInPaste} repeated in your list, ${s.alreadyCount} already in the system` +
             (s.alreadyCount ? ` (${s.already.successful} paid, ${s.already.pending} pending, ${s.already.failed} failed).` : '.')),
           s.newCount ? h('p', { class: s.withNames < s.newCount ? 'callout' : 'muted small' },
-            `Farmer names found for ${s.withNames} of ${s.newCount}, products for ${s.withProducts} of ${s.newCount}.` +
+            `Farmer names found for ${s.withNames} of ${s.newCount}, products for ${s.withProducts} of ${s.newCount}, states for ${s.withStates} of ${s.newCount}.` +
             (s.withNames < s.newCount ? ` ${s.newCount - s.withNames} without a name: the person will type the name when marking those paid.` : '')) : null,
           s.invalidCount ? h('p', { class: 'err small' }, 'Not valid 10-digit mobile numbers: ' + s.invalid.join(', ') + (s.invalidCount > s.invalid.length ? ' and more' : '')) : null);
         if (!r.plan) {

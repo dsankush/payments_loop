@@ -15,12 +15,12 @@ module.exports = wrap(async (req, res) => {
   const names = new Map(people.map((p) => [p.id, p.name]));
   const rows = await fetchAll(
     'farmers',
-    'phone,prize_money,person_id,sheet_no,position,status,transaction_id,paid_at,farmer_name,products',
+    'phone,prize_money,person_id,sheet_no,position,status,transaction_id,paid_at,farmer_name,products,state,remark',
     { order: ['person_id', 'sheet_no', 'position'] }
   );
   rows.sort((a, b) => (names.get(a.person_id) || '').localeCompare(names.get(b.person_id) || '') || a.sheet_no - b.sheet_no || a.position - b.position);
 
-  const head = ['Person', 'Sheet', 'Farmer Number', 'Prize Money', 'Status', 'Transaction ID', 'Date and Time (IST)', 'Name of the Farmer', 'Products Purchased'];
+  const head = ['Person', 'Sheet', 'Farmer Number', 'Prize Money', 'Status', 'Transaction ID', 'Date and Time (IST)', 'Name of the Farmer', 'State', 'Products Purchased', 'Remark'];
   const lines = [head.join(',')];
   for (const r of rows) {
     lines.push([
@@ -32,7 +32,9 @@ module.exports = wrap(async (req, res) => {
       r.transaction_id,
       r.paid_at ? new Date(r.paid_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
       r.farmer_name,
+      r.state,
       r.products,
+      r.remark,
     ].map(cell).join(','));
   }
   res.setHeader('Cache-Control', 'no-store');

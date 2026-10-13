@@ -34,3 +34,14 @@ The browser never talks to the database. Only the server functions do, using a s
 - **Add numbers** (admin) accepts rows copied straight from a sheet (columns `Phone`, `Farmer Name`, `Products Purchased`, tab separated) or a plain list of numbers. A number that comes without a name needs the person to type the name when marking it paid.
 - The person's page shows all 15 numbers of a sheet at once. **Paid** and **Failed** record the **current time automatically**; the person can change the time before saving. Paid needs a second tap to confirm because a paid entry is locked.
 - Run the tests with `npm test`.
+
+
+## State and remarks
+
+- Every number can carry a **State** (Andhra Pradesh, Karnataka, Maharashtra, Telangana). It comes with the pasted data as a 4th column
+  (`Phone, Farmer Name, Products Purchased, State`), is shown on the person board, and is included in the admin tables ("Paid by state") and the CSV export.
+  Like the name and products, a state cannot be changed once set. A locked (paid) number may only get a state that was never set.
+- Each unpaid number has a **Remark** box (up to 200 characters). **Failed** needs a reason in the remark. **Pending** can be saved with or without a note,
+  and puts a failed number back to pending. Paying clears the remark from the row; every change stays in `payment_events`.
+- The admin Overview lists failed payments with State and Remark, and a "Pending with a remark" table. The export has `State` and `Remark` columns.
+- New batches get amounts from 25 to 200 in steps of 5 (`randomPrize(step)` in `lib/numbers.js`).

@@ -57,6 +57,7 @@ module.exports = wrap(async (req, res) => {
     newCount: pool.length,
     withNames: pool.filter((p) => info[p] && info[p].name).length,
     withProducts: pool.filter((p) => info[p] && info[p].products).length,
+    withStates: pool.filter((p) => info[p] && info[p].state).length,
     people: peopleState,
   };
 
@@ -91,6 +92,7 @@ module.exports = wrap(async (req, res) => {
     prize_money: randomPrize(),
     farmer_name: (info[r.phone] && info[r.phone].name) || null,
     products: (info[r.phone] && info[r.phone].products) || null,
+    state: (info[r.phone] && info[r.phone].state) || null,
   }));
   const { error } = await supa.from('farmers').insert(insertRows);
   if (error) {

@@ -117,7 +117,7 @@ textarea { min-height: 150px; line-height: 1.6; resize: vertical; }
 /* Page column */
 .col { max-width: 680px; margin: 0 auto; padding: 0 18px 120px; }
 .col-wide { max-width: 1000px; }
-.col-board { --cols: 34px minmax(180px, 1.4fr) 196px 100px minmax(140px, 1fr) 236px 176px; }
+.col-board { --cols: 34px minmax(200px, 1.5fr) 196px 100px minmax(130px, 1fr) 224px 290px; }
 
 /* Tally marks: the sheet's progress, one mark per farmer */
 .tally line { stroke-width: 4.6; stroke-linecap: round; }
@@ -179,12 +179,17 @@ textarea { min-height: 150px; line-height: 1.6; resize: vertical; }
 .c-who { grid-area: who; min-width: 0; }
 .c-who .nm { display: block; font-weight: 700; font-size: 18px; line-height: 1.25; overflow-wrap: anywhere; }
 .c-who .prod { display: block; color: var(--muted); font-size: 15px; line-height: 1.3; margin-top: 2px; overflow-wrap: anywhere; }
+.c-who .st { display: inline-block; margin-top: 3px; padding: 0 8px; border-radius: 6px; font-size: 13px; font-weight: 700; background: var(--surface-2); color: var(--muted); }
+.rw .rm-in { margin-top: 6px; width: 100%; min-height: 40px; font-size: 15px; }
+.rw .rm-in[aria-invalid="true"] { border-color: var(--chilli); }
+.rw .btn-pend { border-color: color-mix(in srgb, var(--turmeric) 45%, var(--surface)); background: color-mix(in srgb, var(--turmeric) 16%, var(--surface)); color: var(--ink); }
+.rw .btn-pend:disabled { opacity: .5; }
 .tag { display: inline-block; margin-top: 4px; padding: 1px 9px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--chilli-tint); color: var(--chilli-ink); }
 .c-num { grid-area: num; }
 .c-amt { grid-area: amt; justify-self: end; }
 .c-txn { grid-area: txn; min-width: 0; }
 .c-time { grid-area: time; min-width: 0; }
-.c-act { grid-area: act; display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; }
+.c-act { grid-area: act; display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
 .numbtn, .amtbtn {
   display: inline-flex; align-items: center; gap: 8px; border: 2px solid transparent; background: var(--surface-2); color: var(--ink);
   border-radius: 12px; cursor: pointer; font-variant-numeric: tabular-nums; transition: background-color .15s, border-color .15s;

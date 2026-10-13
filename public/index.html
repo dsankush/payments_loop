@@ -45,7 +45,7 @@
       <div class="seg" id="filter" role="group" aria-label="Show"></div>
     </div>
     <div class="board-head" aria-hidden="true">
-      <span>#</span><span>Farmer</span><span>Number</span><span>Amount</span><span>Transaction ID</span><span>Date and time</span><span>Result</span>
+      <span>#</span><span>Farmer, state and remark</span><span>Number</span><span>Amount</span><span>Transaction ID</span><span>Date and time</span><span>Result</span>
     </div>
     <ul class="board" id="list"></ul>
     <p class="overall" id="overall"></p>
@@ -226,6 +226,7 @@
     const li = h('li', { class: 'rw', 'data-state': st, 'data-id': f.id });
     const who = h('div', { class: 'c-who' },
       h('span', { class: 'nm' }, f.farmer_name || 'Name not provided'),
+      f.state ? h('span', { class: 'st' }, f.state) : null,
       f.products ? h('span', { class: 'prod' }, f.products) : null,
       st === 'failed' ? h('span', { class: 'tag' }, 'Failed earlier. Try again') : null);
 
@@ -241,13 +242,15 @@
     }
 
     // ----- a number still to pay (or to retry) -----
-    const d = drafts[f.id] || (drafts[f.id] = { txn: '', nm: '', dt: '', auto: true });
+    const d = drafts[f.id] || (drafts[f.id] = { txn: '', nm: '', dt: '', auto: true, rm: f.remark || '' });
     const needName = !f.farmer_name;
     const err = h('p', { class: 'row-err', role: 'alert' });
 
     const txn = h('input', { class: 'in-txn', type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '40', placeholder: 'Transaction ID', 'aria-label': 'Transaction ID for ' + groupPhone(f.phone), value: d.txn });
     const nm = needName ? h('input', { class: 'name-in', type: 'text', autocomplete: 'off', maxlength: '80', placeholder: 'Type the farmer name', 'aria-label': 'Farmer name', value: d.nm }) : null;
     if (nm) who.append(nm);
+    const rm = h('input', { class: 'rm-in', type: 'text', autocomplete: 'off', maxlength: '200', placeholder: 'Remark (reason if failed)', 'aria-label': 'Remark for ' + groupPhone(f.phone), value: d.rm });
+    who.append(rm);
 
     const dt = h('input', { type: 'datetime-local', 'aria-label': 'Date and time', max: localNowInput(), value: d.auto || !d.dt ? localNowInput() : d.dt });
     const tmeta = h('div', { class: 'tmeta' });
@@ -263,6 +266,7 @@
 
     const okBtn = h('button', { class: 'btn btn-primary btn-paid', type: 'button', disabled: true }, 'Paid');
     const badBtn = h('button', { class: 'btn btn-ghost-danger', type: 'button' }, 'Failed');
+    const pendBtn = h('button', { class: 'btn btn-pend', type: 'button', title: 'Keep it pending and save the remark' }, 'Pending');
 
     function valid() {
       const tOk = TXN.test(txn.value.trim());
@@ -273,12 +277,15 @@
       const t = txn.value.trim();
       txn.setAttribute('aria-invalid', String(!!t && !TXN.test(t)));
       okBtn.disabled = !valid();
+      // Pending is useful when the remark changed, or to put a failed number back to pending.
+      pendBtn.disabled = !(f.status === 'failed' || rm.value.trim() !== (f.remark || ''));
       if (armed && armed.btn === okBtn) disarm();
       err.textContent = '';
     }
     txn.addEventListener('input', () => { d.txn = txn.value; sync(); });
     txn.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !okBtn.disabled) { e.preventDefault(); okBtn.click(); } });
     if (nm) nm.addEventListener('input', () => { d.nm = nm.value; sync(); });
+    rm.addEventListener('input', () => { d.rm = rm.value; rm.removeAttribute('aria-invalid'); sync(); });
     sync();
 
     function whenIso() {
@@ -290,14 +297,18 @@
         err.textContent = 'The date and time cannot be in the future.';
         return;
       }
-      okBtn.disabled = true; badBtn.disabled = true;
+      okBtn.disabled = true; badBtn.disabled = true; pendBtn.disabled = true;
       try {
-        await api('/api/update', {
-          method: 'POST',
-          json: { id: f.id, status, transaction_id: txn.value, farmer_name: nm ? nm.value : undefined, paid_at: whenIso() },
-        });
+        const json = { id: f.id, status };
+        if (status === 'successful') {
+          Object.assign(json, { transaction_id: txn.value, farmer_name: nm ? nm.value : undefined, paid_at: whenIso() });
+        } else {
+          json.remark = rm.value;
+          if (status === 'failed') json.paid_at = whenIso();
+        }
+        await api('/api/update', { method: 'POST', json });
         delete drafts[f.id];
-        toast(status === 'successful' ? `Paid ${inr(f.prize_money)} saved` : 'Marked failed');
+        toast(status === 'successful' ? `Paid ${inr(f.prize_money)} saved` : status === 'failed' ? 'Marked failed, remark saved' : 'Saved as pending');
         await load({ focusAfter: f });
       } catch (e) {
         if (e.status === 401) { logout(e.message); return; }
@@ -314,7 +325,17 @@
       okBtn.textContent = `Confirm ${inr(f.prize_money)}`;
       armed = { btn: okBtn, timer: setTimeout(disarm, 4500) };
     });
-    badBtn.addEventListener('click', () => { disarm(); save('failed'); });
+    badBtn.addEventListener('click', () => {
+      disarm();
+      if (rm.value.trim().length < 3) {
+        rm.setAttribute('aria-invalid', 'true');
+        err.textContent = 'Write the reason in the remark box, then tap Failed.';
+        rm.focus();
+        return;
+      }
+      save('failed');
+    });
+    pendBtn.addEventListener('click', () => { disarm(); if (!pendBtn.disabled) save('pending'); });
 
     li.append(
       h('span', { class: 'c-pos' }, f.position), who,
@@ -322,7 +343,7 @@
       h('div', { class: 'c-amt' }, copyBtn('amtbtn', 'amount', f.prize_money, inr(f.prize_money))),
       h('div', { class: 'c-txn' }, txn),
       h('div', { class: 'c-time' }, dt, tmeta),
-      h('div', { class: 'c-act' }, okBtn, badBtn),
+      h('div', { class: 'c-act' }, okBtn, badBtn, pendBtn),
       err);
     return li;
   }
