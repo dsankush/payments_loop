@@ -44,4 +44,4 @@ The browser never talks to the database. Only the server functions do, using a s
 - Each unpaid number has a **Remark** box (up to 200 characters). **Failed** needs a reason in the remark. **Pending** can be saved with or without a note,
   and puts a failed number back to pending. Paying clears the remark from the row; every change stays in `payment_events`.
 - The admin Overview lists failed payments with State and Remark, and a "Pending with a remark" table. The export has `State` and `Remark` columns.
-- New batches get amounts from 25 to 200 in steps of 5 (`randomPrize(step)` in `lib/numbers.js`).
+- New batches get amounts from 25 to 200 in steps of 25 (`randomPrize(step)` in `lib/numbers.js`).

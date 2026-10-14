@@ -12,11 +12,11 @@ test('normalize cleans, dedupes and rejects bad numbers', () => {
   assert.deepStrictEqual(r.invalid.sort(), ['12345', '5876543210'].sort());
 });
 
-test('randomPrize is 25..200 in steps of 5 and covers both ends over many draws', () => {
+test('randomPrize is 25..200 in steps of 25 and covers both ends over many draws', () => {
   let min = 999, max = 0;
   const seen = new Set();
-  for (let i = 0; i < 20000; i++) { const p = randomPrize(); assert.ok(Number.isInteger(p)); assert.strictEqual(p % 5, 0); seen.add(p); min = Math.min(min, p); max = Math.max(max, p); }
-  assert.strictEqual(seen.size, 36);
+  for (let i = 0; i < 20000; i++) { const p = randomPrize(); assert.ok(Number.isInteger(p)); assert.strictEqual(p % 25, 0); seen.add(p); min = Math.min(min, p); max = Math.max(max, p); }
+  assert.strictEqual(seen.size, 8);
   for (let i = 0; i < 2000; i++) { const p = randomPrize(1); assert.ok(p >= 25 && p <= 200); }
   assert.strictEqual(min, 25);
   assert.strictEqual(max, 200);

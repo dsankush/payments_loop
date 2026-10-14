@@ -285,7 +285,7 @@
     const goBtn = h('button', { class: 'btn btn-primary', type: 'button', disabled: true }, 'Assign numbers');
     const wrap = h('div', {},
       h('h2', {}, 'Add new numbers'),
-      h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200, in steps of ₹5, when you assign it, and the amount can never change.'),
+      h('p', { class: 'muted' }, 'Numbers already in the system, whether paid, pending or failed, are skipped. Every new number gets a random amount from ₹25 to ₹200, in steps of ₹25 (25, 50, 75 up to 200), when you assign it, and the amount can never change.'),
       h('div', { class: 'step' }, h('h3', {}, '1. Paste the numbers'),
         h('p', { class: 'muted small' }, 'Copy the rows straight from your sheet (columns Phone, Farmer Name, Products Purchased) and paste them here. A plain list of numbers also works; then the person types the farmer name when paying.'), ta),
       h('div', { class: 'step' }, h('h3', {}, '2. Choose who gets them'),
