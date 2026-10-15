@@ -108,3 +108,9 @@ test('normalize reads a 4th column as the State', () => {
   assert.strictEqual(r.info['9000000012'].state, null);
   assert.strictEqual(r.duplicatesInPaste, 1);
 });
+
+test('normalize follows the header order: Phone, Name, State, Product', () => {
+  const r = normalize('Farmer Phone\tFarmer Name\tFarmer State\tProduct\n9000000021\tSample A\tAndhra Pradesh\tPlatina\n9000000022\tSample B\tKarnataka\tFantac Plus');
+  assert.deepStrictEqual(r.info['9000000021'], { name: 'Sample A', products: 'Platina', state: 'Andhra Pradesh' });
+  assert.deepStrictEqual(r.info['9000000022'], { name: 'Sample B', products: 'Fantac Plus', state: 'Karnataka' });
+});
