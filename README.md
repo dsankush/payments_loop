@@ -45,3 +45,6 @@ The browser never talks to the database. Only the server functions do, using a s
   and puts a failed number back to pending. Paying clears the remark from the row; every change stays in `payment_events`.
 - The admin Overview lists failed payments with State and Remark, and a "Pending with a remark" table. The export has `State` and `Remark` columns.
 - New batches get amounts from 25 to 200 in steps of 25 (`randomPrize(step)` in `lib/numbers.js`).
+- Pasted files can have the columns in any order when the first row is a header (`Farmer Name, Farmer Phone, Farmer State, Product`, or `Phone, Name, ...`).
+  Without a header the order is phone, name, products, state.
+- When a number has been removed from a person's last sheet, "fill the short last sheet first" fills that gap (the exact free positions), not just the end of the sheet.

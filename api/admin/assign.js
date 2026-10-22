@@ -40,10 +40,13 @@ module.exports = wrap(async (req, res) => {
   const state = {};
   for (const p of people) {
     let lastSheet = 0;
-    let lastCount = 0;
     for (const r of sheetRows) if (r.person_id === p.id && r.sheet_no > lastSheet) lastSheet = r.sheet_no;
-    for (const r of sheetRows) if (r.person_id === p.id && r.sheet_no === lastSheet) lastCount++;
-    state[p.name] = { id: p.id, lastSheet, lastCount: lastSheet ? lastCount : SHEET_SIZE };
+    // Positions already used in the last sheet. A removed number leaves a gap that top-up fills.
+    const used = new Set();
+    for (const r of sheetRows) if (r.person_id === p.id && r.sheet_no === lastSheet) used.add(r.position);
+    const free = [];
+    if (lastSheet) for (let k = 1; k <= SHEET_SIZE; k++) if (!used.has(k)) free.push(k);
+    state[p.name] = { id: p.id, lastSheet, lastCount: lastSheet ? used.size : SHEET_SIZE, free };
   }
   const peopleState = people.map((p) => ({ name: p.name, lastSheet: state[p.name].lastSheet, lastCount: state[p.name].lastSheet ? state[p.name].lastCount : 0 }));
 

@@ -114,3 +114,22 @@ test('normalize follows the header order: Phone, Name, State, Product', () => {
   assert.deepStrictEqual(r.info['9000000021'], { name: 'Sample A', products: 'Platina', state: 'Andhra Pradesh' });
   assert.deepStrictEqual(r.info['9000000022'], { name: 'Sample B', products: 'Fantac Plus', state: 'Karnataka' });
 });
+
+test('normalize reads the phone from its header column: Name, Phone, State, Product', () => {
+  const r = normalize('Farmer Name\tFarmer Phone\tFarmer State\tProduct\nSample A\t9000000031\tTelangana\tPlatina\nFarmer Singh\t9000000032\tKarnataka\tFantac Plus\nNo Number\t\tKarnataka\tFantac Plus');
+  assert.deepStrictEqual(r.valid, ['9000000031', '9000000032']);
+  assert.deepStrictEqual(r.info['9000000031'], { name: 'Sample A', products: 'Platina', state: 'Telangana' });
+  assert.deepStrictEqual(r.info['9000000032'], { name: 'Farmer Singh', products: 'Fantac Plus', state: 'Karnataka' });
+  assert.strictEqual(r.invalid.length, 1);
+});
+
+test('top-up fills a gap left in the last sheet instead of clashing with a used position', () => {
+  const state = { Dean: { id: 'd', lastSheet: 4, lastCount: 14, free: [11] }, Jeet: { id: 'j', lastSheet: 5, lastCount: 15, free: [] } };
+  const pool = Array.from({ length: 17 }, (_, i) => '90000000' + String(i).padStart(2, '0'));
+  const res = allocate({ pool, people: ['Dean', 'Jeet'], state, mode: 'auto', counts: {}, topUp: true });
+  const dean = res.rows.filter((r) => r.name === 'Dean');
+  assert.deepStrictEqual(dean[0], { name: 'Dean', phone: pool[0], sheet_no: 4, position: 11 });
+  assert.strictEqual(dean[1].sheet_no, 5);
+  const keys = res.rows.map((r) => `${r.name}-${r.sheet_no}-${r.position}`);
+  assert.strictEqual(new Set(keys).size, keys.length);
+});
