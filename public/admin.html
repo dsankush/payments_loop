@@ -440,10 +440,18 @@
       } catch (e) { if (e.status === 401) logout(e.message); else msg.textContent = e.message; }
       finally { btn.disabled = false; }
     });
+    const pr = summary.paidReview || { more: 0, same: 0, excess: 0 };
+    const msg2 = h('p', { class: 'err' });
+    const btn2 = h('button', { class: 'btn btn-primary', type: 'button' }, 'Download paid-vs-new-amount list');
+    btn2.addEventListener('click', () => download('/api/admin/export?type=paidreview', 'paid-vs-new-amount.csv', btn2, msg2));
     $('export').replaceChildren(
       h('h2', {}, 'Export everything'),
       h('p', { class: 'muted' }, 'One row for every farmer number: person, sheet, number, prize money, status, transaction ID, date and time, and farmer name. Opens in Excel.'),
-      h('div', { class: 'opt-row' }, btn), msg);
+      h('div', { class: 'opt-row' }, btn), msg,
+      h('div', { class: 'section' },
+        h('h2', {}, 'Already paid, compared with the new amounts'),
+        h('p', { class: 'muted' }, `Purchases from 1 to 19 Oct that are already paid. ${pr.more} were paid more than the new amount (${inr(pr.excess)} more in total) and ${pr.same} were paid exactly the new amount. Paid records are not changed. The list shows the paid amount, the new amount and the difference.`),
+        h('div', { class: 'opt-row' }, btn2), msg2));
   }
 
   if (store.get()) start(); else show('login');

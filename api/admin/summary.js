@@ -1,13 +1,14 @@
 'use strict';
 const { send, authenticate, method, fetchAll, wrap } = require('../../lib/auth');
 const { rectReport } = require('../../lib/rect');
+const { paidReview } = require('../../lib/paidreview');
 
 module.exports = wrap(async (req, res) => {
   if (!method(req, res, 'GET')) return;
   if (!authenticate(req, res, 'admin')) return;
 
   const people = await fetchAll('people', 'id,name', { order: ['name'] });
-  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status,farmer_name,products,paid_at,state,remark', {
+  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,position,status,farmer_name,products,paid_at,state,remark', {
     order: ['person_id', 'sheet_no', 'position'],
   });
 
@@ -89,5 +90,9 @@ module.exports = wrap(async (req, res) => {
   const rects = await fetchAll('rectifications', 'phone,person_id,sheet_no,position,amount,paid_before,status,transaction_id,paid_at,farmer_name,state,remark', { order: ['person_id', 'position'] });
   const rect = rectReport({ people, rects });
 
-  send(res, 200, { overall, people: out, failedList, notedList, byState, daily, rectification: rect.summary, rectEntries: rect.entries });
+  // Paid numbers that were paid more than (or exactly) the amount in the 23 Oct amount file. Listed only.
+  const amountFile = await fetchAll('amount_file2', 'phone,new_amount,grp', { order: ['phone'] });
+  const review = paidReview({ people, farmers, file: amountFile, rects });
+
+  send(res, 200, { overall, people: out, failedList, notedList, byState, daily, rectification: rect.summary, rectEntries: rect.entries, paidReview: review.summary });
 });

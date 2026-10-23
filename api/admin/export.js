@@ -1,6 +1,7 @@
 'use strict';
 const { send, authenticate, method, fetchAll, wrap } = require('../../lib/auth');
 const { rectReport } = require('../../lib/rect');
+const { paidReview } = require('../../lib/paidreview');
 
 function cell(v) {
   let s = v === null || v === undefined ? '' : String(v);
@@ -15,6 +16,7 @@ module.exports = wrap(async (req, res) => {
   const people = await fetchAll('people', 'id,name');
   const which = (req.query && req.query.type) || '';
   if (which === 'rectification') return exportRect(req, res, people, which);
+  if (which === 'paidreview') return exportPaidReview(res, people);
   const names = new Map(people.map((p) => [p.id, p.name]));
   const rows = await fetchAll(
     'farmers',
@@ -60,4 +62,14 @@ async function exportRect(req, res, people, which) {
   const lines = [['Person', 'Farmer Number', 'Extra Amount To Pay', 'Already Paid Before', 'Status', 'Transaction ID', 'Date and Time (IST)', 'Name of the Farmer', 'State', 'Remark'].join(',')];
   for (const e of r.entries) lines.push([e.person, e.phone, e.amount, e.paid_before, e.status, e.transaction_id, ist(e.paid_at), e.farmer_name, e.state, e.remark].map(cell).join(','));
   csv(res, 'rectification-payments.csv', lines);
+}
+
+async function exportPaidReview(res, people) {
+  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,position,status,transaction_id,paid_at,farmer_name,state', { order: ['phone'] });
+  const rects = await fetchAll('rectifications', 'phone', { order: ['phone'] });
+  const file = await fetchAll('amount_file2', 'phone,new_amount,grp', { order: ['phone'] });
+  const r = paidReview({ people, farmers, file, rects });
+  const lines = [['Person', 'Sheet', 'Farmer Number', 'Name of the Farmer', 'State', 'Amount Paid', 'New Amount', 'Paid More By', 'Result', 'Transaction ID', 'Paid On (IST)'].join(',')];
+  for (const o of r.rows) lines.push([o.person, 'Sheet ' + o.sheet_no, o.phone, o.farmer_name, o.state, o.paid, o.new_amount, o.diff, o.kind === 'more' ? 'Paid more than new amount' : 'Same as new amount', o.transaction_id, ist(o.paid_at)].map(cell).join(','));
+  csv(res, 'paid-vs-new-amount.csv', lines);
 }

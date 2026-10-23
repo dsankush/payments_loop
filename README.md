@@ -56,3 +56,11 @@ The shared list gives, for each number, the **extra amount to pay**. It is kept 
 - Pending or failed numbers: the amount on the same row was corrected (old amounts are kept in `prize_corrections` and the event history). A failed number stays failed.
 - Paid numbers: the old payment is untouched. Each gets one new entry for the extra amount in the `rectifications` table, shown as the last tab, **Rectification**, on the board of Jeet or Shreya. It is paid and marked Paid or Failed like any other number (`/api/update` with `kind: "rectification"`). A Transaction ID can be used only once across both tables.
 - The admin **Rectification** tab shows the totals, the entries and a CSV download (`/api/admin/export?type=rectification`).
+
+## Amount file of 23 Oct (purchases 1 to 19 Oct)
+
+The file gives the final amount each farmer should get. It is kept in `amount_file2` (`grp` w = 1 to 19 Oct, b = before 1 Oct, a = 20 Oct or later; only `w` is used).
+
+- Pending and failed numbers: amount changed on the same row, status untouched; every change is in `prize_corrections`. Backup: `farmers_backup_amount`.
+- Paid numbers: never changed. The admin **Export** tab has a download (`/api/admin/export?type=paidreview`) listing the ones paid more than, or exactly, the new amount. Numbers that have a Rectification entry are not in that list.
+- Numbers dated before 1 Oct or from 20 Oct onward were not touched.
