@@ -10,5 +10,11 @@ module.exports = wrap(async (req, res) => {
     'id,phone,prize_money,sheet_no,position,status,transaction_id,farmer_name,products,paid_at,state,remark',
     { filter: (q) => q.eq('person_id', a.pid), order: ['sheet_no', 'position'] }
   );
-  send(res, 200, { name: a.name, farmers: rows });
+  // Corrected amounts for numbers that were already paid once: shown as their own "Rectification" sheet.
+  const rectifications = await fetchAll(
+    'rectifications',
+    'id,phone,amount,paid_before,sheet_no,position,status,transaction_id,farmer_name,products,paid_at,state,remark',
+    { filter: (q) => q.eq('person_id', a.pid), order: ['sheet_no', 'position'] }
+  );
+  send(res, 200, { name: a.name, farmers: rows, rectifications });
 });

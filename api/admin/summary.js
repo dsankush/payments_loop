@@ -1,5 +1,6 @@
 'use strict';
 const { send, authenticate, method, fetchAll, wrap } = require('../../lib/auth');
+const { rectReport } = require('../../lib/rect');
 
 module.exports = wrap(async (req, res) => {
   if (!method(req, res, 'GET')) return;
@@ -84,5 +85,10 @@ module.exports = wrap(async (req, res) => {
   }
   const daily = [...days.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  send(res, 200, { overall, people: out, failedList, notedList, byState, daily });
+  // Rectification: corrected-amount entries for numbers paid too little, and the list of numbers paid too much.
+  const rects = await fetchAll('rectifications', 'phone,person_id,sheet_no,position,amount,paid_before,status,transaction_id,paid_at,farmer_name,state,remark', { order: ['person_id', 'position'] });
+  const file = await fetchAll('rectification_file', 'phone,rect_amount,in_scope', { order: ['phone'] });
+  const rect = rectReport({ people, farmers, rects, file });
+
+  send(res, 200, { overall, people: out, failedList, notedList, byState, daily, rectification: rect.summary, rectEntries: rect.entries, overpaid: rect.overpaid, overpaidExcess: rect.overpaidExcess, rectSame: rect.same });
 });

@@ -185,6 +185,7 @@ textarea { min-height: 150px; line-height: 1.6; resize: vertical; }
 .rw .btn-pend { border-color: color-mix(in srgb, var(--turmeric) 45%, var(--surface)); background: color-mix(in srgb, var(--turmeric) 16%, var(--surface)); color: var(--ink); }
 .rw .btn-pend:disabled { opacity: .5; }
 .tag { display: inline-block; margin-top: 4px; padding: 1px 9px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--chilli-tint); color: var(--chilli-ink); }
+.tag-rect { background: var(--turmeric-tint); color: var(--turmeric-ink); }
 .c-num { grid-area: num; }
 .c-amt { grid-area: amt; justify-self: end; }
 .c-txn { grid-area: txn; min-width: 0; }

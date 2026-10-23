@@ -72,7 +72,9 @@
 
   const sum = (a) => a.reduce((s, f) => s + f.prize_money, 0);
   const stateOf = (f) => (f.status === 'successful' ? 'paid' : f.status === 'failed' ? 'failed' : 'pending');
-  const sheetsOf = () => [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => a - b);
+  // The corrected-amount entries sit on their own sheet, kept as sheet 0 and shown last.
+  const sheetsOf = () => [...new Set(data.map((f) => f.sheet_no))].sort((a, b) => (a || 1e9) - (b || 1e9));
+  const sheetName = (s) => (s === 0 ? 'Rectification' : `Sheet ${s}`);
   const rowsOf = (s) => data.filter((f) => f.sheet_no === s).sort((a, b) => a.position - b.position);
 
   function show(view) {
@@ -128,7 +130,7 @@
   async function load(opts) {
     try {
       const r = await api('/api/my-data');
-      data = r.farmers;
+      data = r.farmers.concat((r.rectifications || []).map((e) => ({ ...e, prize_money: e.amount, sheet_no: 0, kind: 'rectification' })));
       $('who').textContent = r.name;
       const sheets = sheetsOf();
       if (active === null || !sheets.includes(active)) {
@@ -171,11 +173,15 @@
     } else {
       $('list').replaceChildren(...rows.map(rowEl));
     }
-    const paid = data.filter((f) => f.status === 'successful');
-    const failed = data.filter((f) => f.status === 'failed');
-    $('overall').textContent = data.length
-      ? `Across all ${sheetsOf().length} sheets: ${paid.length} of ${data.length} paid, ${inr(sum(paid))} sent, ${inr(sum(data) - sum(paid))} left` +
-        (failed.length ? `, and ${failed.length} failed to retry.` : '.')
+    const main = data.filter((f) => !f.kind);
+    const rect = data.filter((f) => f.kind);
+    const paid = main.filter((f) => f.status === 'successful');
+    const failed = main.filter((f) => f.status === 'failed');
+    const rectLeft = rect.filter((f) => f.status !== 'successful');
+    $('overall').textContent = main.length
+      ? `Across all ${sheetsOf().filter((x) => x).length} sheets: ${paid.length} of ${main.length} paid, ${inr(sum(paid))} sent, ${inr(sum(main) - sum(paid))} left` +
+        (failed.length ? `, and ${failed.length} failed to retry.` : '.') +
+        (rect.length ? ` Rectification: ${rect.length - rectLeft.length} of ${rect.length} paid, ${inr(sum(rectLeft))} left.` : '')
       : '';
   }
 
@@ -189,7 +195,7 @@
     drawn = active;
     band.replaceChildren(
       h('div', { class: 'band-l' },
-        h('div', { class: 'band-title' }, h('h1', {}, `Sheet ${active}`), h('span', { class: 'sub' }, complete ? 'All paid' : `${paid.length} of ${rows.length} paid`)),
+        h('div', { class: 'band-title' }, h('h1', {}, sheetName(active)), h('span', { class: 'sub' }, complete ? 'All paid' : `${paid.length} of ${rows.length} paid`)),
         tally(rows.map(stateOf), { height: 40, animate })),
       h('div', { class: 'band-r' },
         h('span', { class: 'big' }, inr(sum(rows) - sum(paid))),
@@ -204,7 +210,7 @@
       return h('button', {
         class: 'sheet-chip', role: 'tab', type: 'button', 'aria-selected': String(s === active),
         onclick: () => { active = s; render(); },
-      }, `Sheet ${s}`, done === rows.length ? icon('check', 16) : h('small', {}, `${done}/${rows.length}`));
+      }, sheetName(s), done === rows.length ? icon('check', 16) : h('small', {}, `${done}/${rows.length}`));
     }));
   }
 
@@ -228,6 +234,7 @@
       h('span', { class: 'nm' }, f.farmer_name || 'Name not provided'),
       f.state ? h('span', { class: 'st' }, f.state) : null,
       f.products ? h('span', { class: 'prod' }, f.products) : null,
+      f.kind ? h('span', { class: 'tag tag-rect' }, `Corrected amount. ${inr(f.paid_before)} was paid earlier`) : null,
       st === 'failed' ? h('span', { class: 'tag' }, 'Failed earlier. Try again') : null);
 
     if (st === 'paid') {
@@ -300,6 +307,7 @@
       okBtn.disabled = true; badBtn.disabled = true; pendBtn.disabled = true;
       try {
         const json = { id: f.id, status };
+        if (f.kind) json.kind = f.kind;
         if (status === 'successful') {
           Object.assign(json, { transaction_id: txn.value, farmer_name: nm ? nm.value : undefined, paid_at: whenIso() });
         } else {

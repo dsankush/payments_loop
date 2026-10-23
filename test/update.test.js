@@ -7,17 +7,23 @@ const auth = require('../lib/auth');
 
 // A tiny in-memory stand-in for the farmers table.
 const rows = [];
+const rects = [];
+const farmersRows = rows;
 const mkRow = (o) => ({ id: o.id, person_id: 'P1', status: 'pending', transaction_id: null, farmer_name: null, products: null, paid_at: null, ...o });
 function fakeDb() {
   return {
-    from() {
+    from(name) {
+      const rows = name === 'rectifications' ? rects : farmersRows;
       const q = { op: 'select', filters: [], neq: [], patch: null };
-      const match = () => rows.filter((r) => q.filters.every(([k, v]) => r[k] === v) && q.neq.every(([k, v]) => r[k] !== v));
+      const match = () => rows.filter((r) => q.filters.every(([k, v]) => (v && v.ci ? String(r[k] || '').toLowerCase() === v.ci : r[k] === v)) && q.neq.every(([k, v]) => r[k] !== v));
       const api = {
         select() { return api; },
         update(p) { q.op = 'update'; q.patch = p; return api; },
         eq(k, v) { q.filters.push([k, v]); return api; },
         neq(k, v) { q.neq.push([k, v]); return api; },
+        ilike(k, v) { q.filters.push([k, { ci: String(v).toLowerCase() }]); return api; },
+        limit() { return api; },
+        then(ok, bad) { return Promise.resolve({ data: match().map((r) => ({ ...r })), error: null }).then(ok, bad); },
         async maybeSingle() {
           const m = match()[0];
           if (!m) return { data: null, error: null };
@@ -134,4 +140,24 @@ test('a duplicate transaction id is reported clearly', async () => {
   const r = await call(tok, { id: '00000000-0000-4000-8000-000000000004', status: 'successful', transaction_id: 'UPI123456' });
   assert.strictEqual(r.code, 409);
   assert.match(r.body.error, /already used/);
+});
+
+test('rectification entries are updated in their own table and share Transaction ID uniqueness', async () => {
+  const RID = '00000000-0000-4000-8000-0000000000a1';
+  rects.push({ id: RID, person_id: 'P1', status: 'pending', transaction_id: null, farmer_name: 'Rect Farmer', products: null, paid_at: null });
+  // UPI123456 is already used by a normal number, so it cannot be reused on a rectification entry.
+  let r = await call(tok, { kind: 'rectification', id: RID, status: 'successful', transaction_id: 'UPI123456' });
+  assert.strictEqual(r.code, 409);
+  r = await call(tok, { kind: 'rectification', id: RID, status: 'successful', transaction_id: 'RECT555555' });
+  assert.strictEqual(r.code, 200);
+  assert.strictEqual(rects[0].status, 'successful');
+  // and now it is locked
+  r = await call(tok, { kind: 'rectification', id: RID, status: 'failed', remark: 'try again' });
+  assert.strictEqual(r.code, 409);
+  // a normal number cannot reuse the rectification's Transaction ID
+  r = await call(tok, { id: ID2, status: 'successful', transaction_id: 'rect555555' });
+  assert.strictEqual(r.code, 409);
+  // a normal id is not found in the rectification table
+  r = await call(tok, { kind: 'rectification', id: ID1, status: 'pending' });
+  assert.strictEqual(r.code, 404);
 });

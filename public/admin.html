@@ -37,10 +37,12 @@
   <main class="col col-wide">
     <div class="tabs" role="tablist" id="tabs">
       <button class="tab" role="tab" data-tab="overview" type="button">Overview</button>
+      <button class="tab" role="tab" data-tab="rect" type="button">Rectification</button>
       <button class="tab" role="tab" data-tab="assign" type="button">Add numbers</button>
       <button class="tab" role="tab" data-tab="export" type="button">Export</button>
     </div>
     <section id="overview" class="section"></section>
+    <section id="rect" class="section hidden"></section>
     <section id="assign" class="section hidden"></section>
     <section id="export" class="section hidden"></section>
   </main>
@@ -82,7 +84,7 @@
   document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; renderTabs(); }));
   function renderTabs() {
     document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-    for (const id of ['overview', 'assign', 'export']) $(id).classList.toggle('hidden', id !== tab);
+    for (const id of ['overview', 'rect', 'assign', 'export']) $(id).classList.toggle('hidden', id !== tab);
   }
 
   async function start() {
@@ -91,6 +93,7 @@
       show('app');
       renderTabs();
       renderOverview();
+      renderRect();
       renderAssign();
       renderExport();
     } catch (err) {
@@ -268,6 +271,61 @@
       h('div', { class: 'table-scroll' }, h('table', {},
         h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'State'), h('th', {}, 'Remark'), h('th', { class: 'r' }, 'Amount'))),
         h('tbody', {}, ...list.map((f) => h('tr', {}, h('td', {}, f.person), h('td', {}, `Sheet ${f.sheet_no}`), h('td', {}, f.phone), h('td', {}, f.farmer_name || ''), h('td', {}, f.state || ''), h('td', { style: 'white-space:normal;min-width:220px' }, f.remark || ''), h('td', { class: 'r' }, inr(f.prize_money))))))));
+  }
+
+  // ---------- Rectification ----------
+  async function download(path, file, btn, msg) {
+    msg.textContent = ''; btn.disabled = true;
+    try {
+      const r = await api(path, { raw: true });
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = file;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast('Download started');
+    } catch (e) { if (e.status === 401) logout(e.message); else msg.textContent = e.message; }
+    finally { btn.disabled = false; }
+  }
+
+  function renderRect() {
+    const r = summary.rectification || { count: 0, byPerson: [] };
+    const entries = summary.rectEntries || [];
+    const over = summary.overpaid || [];
+    const msg1 = h('p', { class: 'err' });
+    const msg2 = h('p', { class: 'err' });
+    const b1 = h('button', { class: 'btn btn-primary', type: 'button' }, 'Download rectification payments');
+    const b2 = h('button', { class: 'btn btn-primary', type: 'button' }, 'Download paid-more list');
+    b1.addEventListener('click', () => download('/api/admin/export?type=rectification', 'rectification-payments.csv', b1, msg1));
+    b2.addEventListener('click', () => download('/api/admin/export?type=overpaid', 'paid-more-than-corrected.csv', b2, msg2));
+    const status = (e) => (e.status === 'successful' ? 'Paid' : e.status === 'failed' ? 'Failed' : 'Not paid yet');
+
+    $('rect').replaceChildren(
+      h('h2', {}, `${inr(r.pending + (r.failed || 0))} to pay in rectification`),
+      h('p', { class: 'muted' }, `${r.count} numbers were paid less than the corrected amount. Each has a new entry on every person’s Rectification sheet for the full corrected amount. ${inr(r.paid || 0)} of ${inr(r.total || 0)} paid so far.`),
+      h('div', { class: 'section' },
+        h('h2', {}, 'By person'),
+        h('div', { class: 'table-scroll' }, h('table', { class: 'paid-table' },
+          h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', { class: 'r' }, 'Numbers'), h('th', { class: 'r' }, 'Paid'), h('th', { class: 'r' }, 'Paid amount'), h('th', { class: 'r' }, 'To pay'))),
+          h('tbody', {}, ...(r.byPerson || []).map((p) => h('tr', {}, h('td', {}, p.name), h('td', { class: 'r' }, p.count), h('td', { class: 'r' }, p.paidCount), h('td', { class: 'r' }, inr(p.paid)), h('td', { class: 'r' }, inr(p.pending + p.failed))))),
+          h('tfoot', {}, h('tr', {}, h('td', {}, 'Total'), h('td', { class: 'r' }, r.count), h('td', { class: 'r' }, r.paidCount || 0), h('td', { class: 'r' }, inr(r.paid || 0)), h('td', { class: 'r' }, inr((r.pending || 0) + (r.failed || 0)))))))),
+      h('div', { class: 'section' },
+        h('h2', {}, 'Rectification payments'),
+        h('div', { class: 'opt-row' }, b1), msg1,
+        h('div', { class: 'table-scroll' }, h('table', {},
+          h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'State'), h('th', { class: 'r' }, 'Paid before'), h('th', { class: 'r' }, 'Corrected amount'), h('th', {}, 'Status'), h('th', {}, 'Transaction ID'))),
+          h('tbody', {}, ...entries.map((e) => h('tr', {}, h('td', {}, e.person), h('td', {}, e.phone), h('td', {}, e.farmer_name || ''), h('td', {}, e.state || ''), h('td', { class: 'r' }, inr(e.paid_before)), h('td', { class: 'r' }, inr(e.amount)), h('td', {}, status(e)), h('td', {}, e.transaction_id || ''))))))),
+      h('div', { class: 'section' },
+        h('h2', {}, 'Paid more than the corrected amount'),
+        h('p', { class: 'muted' }, `${over.length} numbers were paid more than the corrected amount, ${inr(summary.overpaidExcess || 0)} extra in total. No new payment is made for these. ${summary.rectSame || 0} more were paid exactly the corrected amount.`),
+        h('div', { class: 'opt-row' }, b2), msg2,
+        over.length
+          ? h('div', { class: 'table-scroll' }, h('table', {},
+              h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Sheet'), h('th', {}, 'Number'), h('th', {}, 'Farmer'), h('th', {}, 'State'), h('th', { class: 'r' }, 'Paid'), h('th', { class: 'r' }, 'Correct'), h('th', { class: 'r' }, 'Extra'), h('th', {}, 'Transaction ID'), h('th', {}, 'Paid on'))),
+              h('tbody', {}, ...over.map((o) => h('tr', {}, h('td', {}, o.person), h('td', {}, `Sheet ${o.sheet_no}`), h('td', {}, o.phone), h('td', {}, o.farmer_name || ''), h('td', {}, o.state || ''), h('td', { class: 'r' }, inr(o.paid)), h('td', { class: 'r' }, inr(o.correct)), h('td', { class: 'r' }, inr(o.excess)), h('td', {}, o.transaction_id || ''), h('td', {}, o.paid_at ? fmtDate(o.paid_at) : '')))),
+              h('tfoot', {}, h('tr', {}, h('td', { colspan: 7 }, 'Total extra'), h('td', { class: 'r' }, inr(summary.overpaidExcess || 0)), h('td', {}), h('td', {})))))
+          : h('p', { class: 'muted' }, 'No numbers were paid more than the corrected amount.')));
   }
 
   // ---------- Add numbers ----------

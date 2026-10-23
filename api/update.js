@@ -11,7 +11,10 @@ module.exports = wrap(async (req, res) => {
   const a = authenticate(req, res, 'person');
   if (!a) return;
 
-  const { id, status, transaction_id, farmer_name, paid_at, remark } = body(req);
+  const { id, status, transaction_id, farmer_name, paid_at, remark, kind } = body(req);
+  // 'rectification' entries live in their own table; everything else is a normal sheet number.
+  const table = kind === 'rectification' ? 'rectifications' : 'farmers';
+  const other = table === 'farmers' ? 'rectifications' : 'farmers';
   if (typeof id !== 'string' || !UUID.test(id)) return send(res, 400, { error: 'Invalid entry.' });
   if (status !== 'successful' && status !== 'failed' && status !== 'pending') return send(res, 400, { error: 'Invalid status.' });
 
@@ -34,7 +37,7 @@ module.exports = wrap(async (req, res) => {
 
   const supa = db();
   const { data: row, error: rErr } = await supa
-    .from('farmers')
+    .from(table)
     .select('id,status,farmer_name')
     .eq('id', id)
     .eq('person_id', a.pid)
@@ -53,6 +56,10 @@ module.exports = wrap(async (req, res) => {
   } else {
     const txn = typeof transaction_id === 'string' ? transaction_id.trim() : '';
     if (!TXN.test(txn)) return send(res, 400, { error: 'Transaction ID must be 6 to 40 letters or digits, no spaces.' });
+    // One Transaction ID can only ever be used once, across normal numbers and rectification entries.
+    const { data: dup, error: dErr } = await supa.from(other).select('id').ilike('transaction_id', txn).limit(1);
+    if (dErr) throw dErr;
+    if (dup && dup.length) return send(res, 409, { error: 'This Transaction ID is already used for another number.' });
     patch = { status: 'successful', transaction_id: txn, paid_at: when.toISOString(), remark: null };
     // The farmer's name normally comes with the data and cannot be changed.
     // Only a number that came without a name needs one typed in now.
@@ -64,7 +71,7 @@ module.exports = wrap(async (req, res) => {
   }
 
   const { data, error } = await supa
-    .from('farmers')
+    .from(table)
     .update(patch)
     .eq('id', id)
     .eq('person_id', a.pid)

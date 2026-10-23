@@ -48,3 +48,14 @@ The browser never talks to the database. Only the server functions do, using a s
 - Pasted files can have the columns in any order when the first row is a header (`Farmer Name, Farmer Phone, Farmer State, Product`, or `Phone, Name, ...`).
   Without a header the order is phone, name, products, state.
 - When a number has been removed from a person's last sheet, "fill the short last sheet first" fills that gap (the exact free positions), not just the end of the sheet.
+
+## Rectification (corrected cashback amounts)
+
+Some amounts were wrong. The corrected list is kept in the `rectification_file` table (only rows with `in_scope = true` count; purchases from 20 Oct onward are left alone).
+
+- Pending or failed numbers: the amount on the same row was corrected (old amounts are kept in `prize_corrections` and the event history). A failed number stays failed.
+- Paid for less than the corrected amount: the paid record is untouched. A new entry for the full corrected amount sits in the `rectifications` table and shows on every person's board as the last tab, **Rectification**. It is paid and marked Paid or Failed like any other number (`/api/update` with `kind: "rectification"`). A Transaction ID can be used only once across both tables.
+- Paid for more than the corrected amount: no payment is created. They are listed in the admin **Rectification** tab (and in `/api/admin/export?type=overpaid`).
+- Paid for exactly the corrected amount: nothing to do.
+
+Do not delete `rectification_file`: the admin lists are worked out from it.
