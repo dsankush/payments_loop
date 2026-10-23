@@ -14,7 +14,7 @@ module.exports = wrap(async (req, res) => {
 
   const people = await fetchAll('people', 'id,name');
   const which = (req.query && req.query.type) || '';
-  if (which === 'rectification' || which === 'overpaid') return exportRect(req, res, people, which);
+  if (which === 'rectification') return exportRect(req, res, people, which);
   const names = new Map(people.map((p) => [p.id, p.name]));
   const rows = await fetchAll(
     'farmers',
@@ -55,16 +55,9 @@ function csv(res, name, lines) {
 }
 
 async function exportRect(req, res, people, which) {
-  const farmers = await fetchAll('farmers', 'phone,prize_money,person_id,sheet_no,status,transaction_id,paid_at,farmer_name,state', { order: ['phone'] });
-  const rects = await fetchAll('rectifications', 'phone,person_id,sheet_no,position,amount,paid_before,status,transaction_id,paid_at,farmer_name,state,remark', { order: ['person_id', 'position'] });
-  const file = await fetchAll('rectification_file', 'phone,rect_amount,in_scope', { order: ['phone'] });
-  const r = rectReport({ people, farmers, rects, file });
-  if (which === 'overpaid') {
-    const lines = [['Person', 'Sheet', 'Farmer Number', 'Name of the Farmer', 'State', 'Amount Paid', 'Correct Amount', 'Paid Extra', 'Transaction ID', 'Paid On (IST)'].join(',')];
-    for (const o of r.overpaid) lines.push([o.person, 'Sheet ' + o.sheet_no, o.phone, o.farmer_name, o.state, o.paid, o.correct, o.excess, o.transaction_id, ist(o.paid_at)].map(cell).join(','));
-    return csv(res, 'paid-more-than-corrected.csv', lines);
-  }
-  const lines = [['Person', 'Farmer Number', 'Rectified Amount', 'Already Paid Before', 'Status', 'Transaction ID', 'Date and Time (IST)', 'Name of the Farmer', 'State', 'Remark'].join(',')];
+  const rects = await fetchAll('rectifications', 'phone,person_id,sheet_no,position,amount,paid_before,status,transaction_id,paid_at,farmer_name,state,remark', { order: ['person_id', 'sheet_no', 'position'] });
+  const r = rectReport({ people, rects });
+  const lines = [['Person', 'Farmer Number', 'Extra Amount To Pay', 'Already Paid Before', 'Status', 'Transaction ID', 'Date and Time (IST)', 'Name of the Farmer', 'State', 'Remark'].join(',')];
   for (const e of r.entries) lines.push([e.person, e.phone, e.amount, e.paid_before, e.status, e.transaction_id, ist(e.paid_at), e.farmer_name, e.state, e.remark].map(cell).join(','));
   csv(res, 'rectification-payments.csv', lines);
 }

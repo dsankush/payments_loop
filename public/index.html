@@ -130,7 +130,7 @@
   async function load(opts) {
     try {
       const r = await api('/api/my-data');
-      data = r.farmers.concat((r.rectifications || []).map((e) => ({ ...e, prize_money: e.amount, sheet_no: 0, kind: 'rectification' })));
+      data = r.farmers.concat((r.rectifications || []).map((e) => ({ ...e, prize_money: e.amount, position: (e.sheet_no - 1) * 15 + e.position, sheet_no: 0, kind: 'rectification' })));
       $('who').textContent = r.name;
       const sheets = sheetsOf();
       if (active === null || !sheets.includes(active)) {
@@ -234,7 +234,7 @@
       h('span', { class: 'nm' }, f.farmer_name || 'Name not provided'),
       f.state ? h('span', { class: 'st' }, f.state) : null,
       f.products ? h('span', { class: 'prod' }, f.products) : null,
-      f.kind ? h('span', { class: 'tag tag-rect' }, `Corrected amount. ${inr(f.paid_before)} was paid earlier`) : null,
+      f.kind ? h('span', { class: 'tag tag-rect' }, `Extra payment. ${inr(f.paid_before)} was paid earlier`) : null,
       st === 'failed' ? h('span', { class: 'tag' }, 'Failed earlier. Try again') : null);
 
     if (st === 'paid') {
